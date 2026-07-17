@@ -53,7 +53,7 @@ class ModelDownloadService {
   /// Get the best storage directory for models
   /// Uses external storage on Android (persists across app updates)
   /// Falls back to internal storage if external is not available
-  Future<Directory> _getModelStorageDirectory() async {
+  Future<Directory> getModelStorageDirectory() async {
     if (Platform.isAndroid) {
       try {
         // Try external storage first (persists across app updates)
@@ -87,7 +87,7 @@ class ModelDownloadService {
     _activeDownloads[modelId] = progressController;    await _saveActiveDownloads(); // Persist download state
     try {
       // Get storage directory (external on Android for persistence across updates)
-      final storageDir = await _getModelStorageDirectory();
+      final storageDir = await getModelStorageDirectory();
       final modelDir = Directory('${storageDir.path}/models/$author');
       await modelDir.create(recursive: true);
       
@@ -412,7 +412,7 @@ class ModelDownloadService {
   /// Get total size of downloaded models directory in bytes
   Future<int> getModelsDirectorySize() async {
     try {
-      final storageDir = await _getModelStorageDirectory();
+      final storageDir = await getModelStorageDirectory();
       final modelsDir = Directory('${storageDir.path}/models');
       
       if (!await modelsDir.exists()) {
@@ -440,7 +440,7 @@ class ModelDownloadService {
   /// Get list of all downloaded model files
   Future<List<String>> getDownloadedModelPaths() async {
     try {
-      final storageDir = await _getModelStorageDirectory();
+      final storageDir = await getModelStorageDirectory();
       final modelsDir = Directory('${storageDir.path}/models');
       
       if (!await modelsDir.exists()) {
