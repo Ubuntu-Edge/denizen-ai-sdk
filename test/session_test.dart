@@ -170,12 +170,61 @@ void main() {
     await session2.chat('User 1'); 
     
     // Now history is [System, User 1, Asst 1]
-    // Send a large message that forces eviction of both.
-    final largeMessage = 'Large User Message: ' + 'A' * 290;
+    // Calculate exact bounds to trip the eviction by exactly 1 token
+    final contextLimit = service.loadedModel!.contextSize!; // 600
+    final reservedTokens = 512;
+    final budget = contextLimit - reservedTokens; // 88
+
+    // Helper matching DenizenSession heuristic
+    int estimateTokens(String text) => (text.length / 4).ceil();
+
+    final systemTokens = estimateTokens('System');
+    final pairTokens = estimateTokens('User 1') + estimateTokens('Assistant Reply');
+    
+    // Message length calculated to exceed budget by exactly 1 token
+    final triggerCharsOver = ((budget - systemTokens - pairTokens + 1) * 4);
+    final largeMessage = 'x' * triggerCharsOver;
+    
     await session2.chat(largeMessage);
     
-    // [System, User 1, Asst 1, New User] -> length 4! Drops User 1 & Asst 1.
-    expect(session2.history.length, equals(3)); 
+    // [System, User 1, Asst 1, New User] -> length 4. Budget exceeded! Drops User 1 & Asst 1.
+    // Then appends New Asst. Final length = 3.
+    expect(session2.history.length, equals(3));  
+  });
+
+  test('Session precisely respects the strict boundary condition (sum == limit vs sum == limit + 1)', () async {
+    final service = FakeOfflineAIService();
+    final contextLimit = service.loadedModel!.contextSize!; // 600
+    final reservedTokens = 512;
+    final budget = contextLimit - reservedTokens; // 88
+
+    int estimateTokens(String text) => (text.length / 4).ceil();
+
+    // Test 1: EXACT MATCH (should not evict)
+    final sessionExact = DenizenSession(service, systemPrompt: 'System');
+    await sessionExact.chat('User'); // [System, User, Asst]
+
+    final systemTokens = estimateTokens('System');
+    final pairTokens = estimateTokens('User') + estimateTokens('Assistant Reply');
+    
+    // Derive string length to hit EXACTLY the budget
+    final triggerCharsExact = ((budget - systemTokens - pairTokens) * 4);
+    await sessionExact.chat('x' * triggerCharsExact);
+    
+    // Exact match means condition (total > budget) is false. Pair is kept.
+    // History: System, User, Asst, New User, New Asst -> length 5
+    expect(sessionExact.history.length, equals(5), reason: 'Exact budget match should NOT evict');
+
+    // Test 2: OVER BY 1 (should evict)
+    final sessionOver = DenizenSession(service, systemPrompt: 'System');
+    await sessionOver.chat('User'); // [System, User, Asst]
+
+    final triggerCharsOver = ((budget - systemTokens - pairTokens + 1) * 4);
+    await sessionOver.chat('x' * triggerCharsOver);
+    
+    // Over by 1 means (total > budget) is true. Pair is evicted.
+    // History: System, New User, New Asst -> length 3
+    expect(sessionOver.history.length, equals(3), reason: 'Budget + 1 token should evict');
   });
 
   test('Session accumulates streaming chunks and appends assistant message on completion', () async {
