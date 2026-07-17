@@ -1,7 +1,13 @@
 library denizen_ai;
 
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'src/services/offline_ai_service.dart';
 import 'src/services/model_download_service.dart';
+import 'src/models/offline_model.dart';
+import 'src/models/default_offline_models.dart';
 
 /// The core entry point for the Denizen AI SDK.
 /// Abstracts away complex offline AI tasks like model management, 
@@ -18,14 +24,12 @@ class DenizenAI {
   factory DenizenAI() => _instance;
 
   final OfflineAIService _aiService;
-  final ModelDownloadService _downloadService;
   
   /// Access the model manager to download, load, and manage GGUF models.
   final DenizenModelManager models;
 
   DenizenAI._internal() 
       : _aiService = OfflineAIService.instance,
-        _downloadService = ModelDownloadService.instance,
         models = DenizenModelManager(
           ModelDownloadService.instance, 
           OfflineAIService.instance,
@@ -45,12 +49,6 @@ class DenizenAI {
   // TODO: Add chat(), streamChat(), createSession(), etc.
 }
 
-import 'dart:io';
-import 'src/models/offline_model.dart';
-import 'src/models/default_offline_models.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter/foundation.dart';
 
 /// Exception thrown when the device is out of storage space and eviction fails.
 class StorageQuotaException implements Exception {

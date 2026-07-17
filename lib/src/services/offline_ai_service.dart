@@ -36,10 +36,7 @@ class OfflineAIService {
 
   /// Currently loaded model info
   String? _loadedModelPath;
-  String? get loadedModelPath => _loadedModelPath;
-  
   OfflineModel? _loadedModel;
-  OfflineModel? get loadedModel => _loadedModel;
 
   /// Flag to stop generation
   bool _stopRequested = false;
