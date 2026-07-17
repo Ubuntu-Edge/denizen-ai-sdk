@@ -45,6 +45,27 @@ class DenizenAI {
   // TODO: Add chat(), streamChat(), createSession(), etc.
 }
 
+/// Progress data representing an ongoing model download.
+class DenizenDownloadProgress {
+  /// The fractional progress from `0.0` (start) to `1.0` (complete).
+  final double progress;
+
+  /// Number of bytes downloaded so far.
+  final int bytesDownloaded;
+
+  /// Total size of the model file in bytes.
+  final int totalBytes;
+
+  /// Returns the percentage of download completed (0.0 to 100.0).
+  double get percent => progress * 100.0;
+
+  DenizenDownloadProgress({
+    required this.progress,
+    required this.bytesDownloaded,
+    required this.totalBytes,
+  });
+}
+
 /// Facade for managing models (Downloading, Loading, Eviction)
 class DenizenModelManager {
   final ModelDownloadService _downloadService;
@@ -56,7 +77,7 @@ class DenizenModelManager {
   /// it will automatically download it.
   Future<void> load(String modelId, {
     bool requireWifi = false, 
-    Function(double)? onProgress,
+    void Function(DenizenDownloadProgress progress)? onProgress,
   }) async {
     // TODO: Implement the actual load logic tying download service to AI service
     // 1. Check if model exists locally
