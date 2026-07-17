@@ -79,13 +79,32 @@ class OfflineAIService {
       // Create new controller
       _controller = LlamaController();
       
-      // Load the model using LlamaController
-      await _controller!.loadModel(
-        modelPath: modelPath,
-        threads: params.nThreads,
-        contextSize: params.nCtx,
-        gpuLayers: params.nGpuLayers > 0 ? params.nGpuLayers : null,
-      );
+      // Load the model using LlamaController with hardware acceleration fallback
+      try {
+        await _controller!.loadModel(
+          modelPath: modelPath,
+          threads: params.nThreads,
+          contextSize: params.nCtx,
+          gpuLayers: params.nGpuLayers > 0 ? params.nGpuLayers : null,
+        );
+      } catch (e) {
+        if (params.nGpuLayers > 0) {
+          debugPrint('⚠️ Hardware acceleration failed: $e. Falling back to CPU (NEON) inference.');
+          // Dispose the failed controller and create a fresh one for fallback
+          await _controller!.dispose();
+          _controller = LlamaController();
+          
+          await _controller!.loadModel(
+            modelPath: modelPath,
+            threads: params.nThreads,
+            contextSize: params.nCtx,
+            gpuLayers: 0, // Force CPU
+          );
+        } else {
+          // If already on CPU or an unexpected error occurred, rethrow
+          rethrow;
+        }
+      }
       
       _isModelLoaded = true;
       _loadedModelPath = modelPath;

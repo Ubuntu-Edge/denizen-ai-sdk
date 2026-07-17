@@ -365,11 +365,13 @@ class DenizenSession {
             'The system prompt and the newest user prompt combined exceed the session context budget of $resolvedLimit tokens.'
           );
         }
-        // Evict in pairs (User + Assistant) if possible to preserve structural alignment
-        if (_history.length >= 3) {
+        // Evict in pairs (User + Assistant) if possible to preserve structural alignment.
+        // We need at least 4 items (System + 2 evictable + Newest User) to evict a pair safely.
+        if (_history.length >= 4) {
           _history.removeAt(1); // Drop oldest user message
           _history.removeAt(1); // Drop oldest assistant reply
         } else {
+          // Only 1 evictable message left (odd dangling message)
           _history.removeAt(1);
         }
       } else {
@@ -379,11 +381,13 @@ class DenizenSession {
             'The newest user prompt exceeds the session context budget of $resolvedLimit tokens.'
           );
         }
-        // Evict in pairs if possible
-        if (_history.length >= 2) {
+        // Evict in pairs if possible.
+        // We need at least 3 items (2 evictable + Newest User) to evict a pair safely.
+        if (_history.length >= 3) {
           _history.removeAt(0); // Drop oldest user message
           _history.removeAt(0); // Drop oldest assistant reply
         } else {
+          // Only 1 evictable message left
           _history.removeAt(0);
         }
       }
