@@ -37,10 +37,11 @@ class FakeModelDownloadService implements ModelDownloadService {
   }
 
   @override
-  Future<void> deleteModel(String filePath) async {
+  Future<bool> deleteModel(String filePath) async {
     existingModelPaths.remove(filePath);
-    // Simulate freeing up some generic space (e.g., 2 GB)
-    availableStorageBytes += 2 * 1024 * 1024 * 1024;
+    // Simulate freeing up some generic space (e.g., 3 GB)
+    availableStorageBytes += 3 * 1024 * 1024 * 1024;
+    return true;
   }
 
   @override
@@ -103,15 +104,15 @@ void main() {
     final manager = DenizenModelManager(fakeDownloadService, fakeAiService);
     
     // We expect this to complete normally
-    await manager.load('gemma-2b-it');
+    await manager.load('phi-3.5-mini-q4');
     
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getInt('denizen_last_accessed_gemma-2b-it'), isNotNull);
+    expect(prefs.getInt('denizen_last_accessed_phi-3.5-mini-q4'), isNotNull);
   });
 
   test('load() evicts oldest model when space is constrained', () async {
     // Let's create a fake existing model
-    final oldModelPath = '${tempDir.path}/models/google/gemma-1.gguf';
+    final oldModelPath = '${tempDir.path}/models/google/medgemma-4b.gguf';
     final fakeDownloadService = FakeModelDownloadService(
       tempDir: tempDir,
       availableStorageBytes: 100 * 1024 * 1024, // Only 100 MB available
@@ -128,10 +129,10 @@ void main() {
     
     // Set old model as accessed long ago
     SharedPreferences.setMockInitialValues({
-      'denizen_last_accessed_gemma-1': 1000,
+      'denizen_last_accessed_medgemma-4b-it-q4': 1000,
     });
 
-    await manager.load('gemma-2b-it');
+    await manager.load('phi-3.5-mini-q4');
 
     // old model should have been evicted to make room
     expect(fakeDownloadService.existingModelPaths.contains(oldModelPath), isFalse);
@@ -160,7 +161,7 @@ void main() {
 
     // Expect StorageQuotaException
     expect(
-      () => manager.load('gemma-2b-it'),
+      () => manager.load('phi-3.5-mini-q4'),
       throwsA(isA<StorageQuotaException>()),
     );
     

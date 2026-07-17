@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:llama_flutter_android/llama_flutter_android.dart' show ChatMessage;
 import 'src/services/offline_ai_service.dart';
 import 'src/services/model_download_service.dart';
 import 'src/models/offline_model.dart';
@@ -46,7 +47,17 @@ class DenizenAI {
   /// Use with caution.
   OfflineAIService get engine => _aiService;
 
-  // TODO: Add chat(), streamChat(), createSession(), etc.
+  /// Create a new stateful session for conversation tracking and context management.
+  DenizenSession createSession({
+    String? systemPrompt,
+    int? maxTokens,
+  }) {
+    return DenizenSession(
+      _aiService,
+      systemPrompt: systemPrompt,
+      maxTokens: maxTokens,
+    );
+  }
 }
 
 
@@ -270,6 +281,211 @@ class DenizenModelManager {
 
     if (!loadSuccess) {
       throw Exception('Failed to load model into inference engine.');
+    }
+  }
+}
+
+/// Exception thrown when the prompt or history exceeds the context budget.
+class ContextOverflowException implements Exception {
+  final String message;
+  ContextOverflowException(this.message);
+  @override
+  String toString() => 'ContextOverflowException: $message';
+}
+
+/// The role of the message sender in a chat session.
+enum DenizenRole {
+  system,
+  user,
+  assistant,
+}
+
+/// An immutable representation of a single chat turn.
+class DenizenMessage {
+  final DenizenRole role;
+  final String content;
+
+  DenizenMessage({
+    required this.role,
+    required this.content,
+  });
+}
+
+/// A stateful chat session representing a continuous thread of conversation.
+/// Manages chat history and enforces context boundaries (sliding window truncation).
+class DenizenSession {
+  final OfflineAIService _aiService;
+  final List<DenizenMessage> _history = [];
+  final int? _maxTokensOverride;
+
+  /// Get the current message history in this session.
+  List<DenizenMessage> get history => List.unmodifiable(_history);
+
+  DenizenSession(
+    this._aiService, {
+    String? systemPrompt,
+    int? maxTokens,
+  }) : _maxTokensOverride = maxTokens {
+    if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
+      _history.add(DenizenMessage(
+        role: DenizenRole.system,
+        content: systemPrompt,
+      ));
+    }
+  }
+
+  /// Estimates the token count of a message.
+  /// Uses a safe, conservative heuristic (1 token ~ 4 characters) for Phase 1.
+  int _estimateTokens(DenizenMessage message) {
+    return (message.content.length / 4).ceil();
+  }
+
+  /// Calculates the total estimated tokens across all messages in the session.
+  int _totalEstimatedTokens() {
+    return _history.fold(0, (sum, msg) => sum + _estimateTokens(msg));
+  }
+
+  /// Truncates conversation history if it exceeds the context budget.
+  /// Preserves the system prompt (always at index 0) and the newest user message
+  /// while sliding the window by popping the oldest user/assistant turns.
+  void _enforceContextLimit(int resolvedLimit) {
+    const safetyBuffer = 512; // Reserves space for generation and ratio drift
+    final maxAllowed = resolvedLimit - safetyBuffer;
+
+    // We keep looping to evict old messages until we are under the token budget.
+    // Invariant: _history is always append-ordered; oldest non-system message 
+    // is always at index 1 once a system prompt exists.
+    while (_totalEstimatedTokens() > maxAllowed) {
+      if (_history.isEmpty) break;
+
+      if (_history.first.role == DenizenRole.system) {
+        // If only the system prompt and the newest user message remain, we cannot evict further.
+        if (_history.length <= 2) {
+          throw ContextOverflowException(
+            'The system prompt and the newest user prompt combined exceed the session context budget of $resolvedLimit tokens.'
+          );
+        }
+        // Evict in pairs (User + Assistant) if possible to preserve structural alignment
+        if (_history.length >= 3) {
+          _history.removeAt(1); // Drop oldest user message
+          _history.removeAt(1); // Drop oldest assistant reply
+        } else {
+          _history.removeAt(1);
+        }
+      } else {
+        // No system prompt. If only the newest user prompt remains, we cannot evict further.
+        if (_history.length <= 1) {
+          throw ContextOverflowException(
+            'The newest user prompt exceeds the session context budget of $resolvedLimit tokens.'
+          );
+        }
+        // Evict in pairs if possible
+        if (_history.length >= 2) {
+          _history.removeAt(0); // Drop oldest user message
+          _history.removeAt(0); // Drop oldest assistant reply
+        } else {
+          _history.removeAt(0);
+        }
+      }
+    }
+  }
+
+  /// Resolves the context limit dynamically based on override or model spec.
+  int get _resolvedContextLimit {
+    // 4096 is a conservative fallback guess in case a session is used 
+    // before a model is loaded or the model has no context spec.
+    return _maxTokensOverride ?? _aiService.loadedModel?.contextSize ?? 4096;
+  }
+
+  /// Convert DenizenRole to underlying ChatMessage role string.
+  String _roleToString(DenizenRole role) {
+    switch (role) {
+      case DenizenRole.system:
+        return 'system';
+      case DenizenRole.user:
+        return 'user';
+      case DenizenRole.assistant:
+        return 'assistant';
+    }
+  }
+
+  /// Prepare LLM inputs from session history.
+  List<ChatMessage> _prepareChatMessages() {
+    return _history.map((msg) => ChatMessage(
+      role: _roleToString(msg.role),
+      content: msg.content,
+    )).toList();
+  }
+
+  /// Send a non-streaming message to the model within this session.
+  Future<String> chat(String prompt) async {
+    final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
+    _history.add(userMessage);
+
+    final resolvedLimit = _resolvedContextLimit;
+
+    try {
+      // Apply sliding window context eviction
+      _enforceContextLimit(resolvedLimit);
+    } on ContextOverflowException {
+      // Rollback the failed user message so the session is left in a usable state
+      _history.removeLast();
+      rethrow;
+    }
+
+    try {
+      final messages = _prepareChatMessages();
+      final response = await _aiService.generateHistoryChat(
+        messages: messages,
+      );
+
+      _history.add(DenizenMessage(role: DenizenRole.assistant, content: response));
+      return response;
+    } catch (e) {
+      // If prompt generation fails, keep user message but do not add assistant reply
+      rethrow;
+    }
+  }
+
+  /// Send a streaming message to the model within this session.
+  Stream<String> streamChat(String prompt) async* {
+    final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
+    _history.add(userMessage);
+
+    final resolvedLimit = _resolvedContextLimit;
+
+    try {
+      // Apply sliding window context eviction
+      _enforceContextLimit(resolvedLimit);
+    } on ContextOverflowException {
+      // Rollback the failed user message so the session is left in a usable state
+      _history.removeLast();
+      rethrow;
+    }
+
+    final messages = _prepareChatMessages();
+    final responseBuffer = StringBuffer();
+    bool completedSuccessfully = false;
+
+    try {
+      final stream = _aiService.generateHistoryChatStream(
+        messages: messages,
+      );
+
+      await for (final token in stream) {
+        responseBuffer.write(token);
+        yield token;
+      }
+      completedSuccessfully = true;
+    } finally {
+      if (completedSuccessfully) {
+        // Only append completed assistant message to history on success
+        _history.add(DenizenMessage(
+          role: DenizenRole.assistant,
+          content: responseBuffer.toString(),
+        ));
+      }
+      // If cancelled/failed, we discard the partial reply to protect history cleanliness.
     }
   }
 }

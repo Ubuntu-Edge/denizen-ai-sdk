@@ -219,6 +219,82 @@ class OfflineAIService {
     }
   }
 
+  /// Generate response (non-streaming) with full chat history
+  Future<String> generateHistoryChat({
+    required List<ChatMessage> messages,
+    int maxTokens = 512,
+    double temperature = 0.8,
+    double topP = 0.95,
+    int topK = 40,
+    double repeatPenalty = 1.1,
+  }) async {
+    if (!_isModelLoaded || _controller == null) {
+      return 'Error: No model loaded. Please load an offline AI model first.';
+    }
+    
+    try {
+      final StringBuffer result = StringBuffer();
+      final stream = _controller!.generateChat(
+        messages: messages,
+        maxTokens: maxTokens,
+        temperature: temperature,
+        topP: topP,
+        topK: topK,
+        repeatPenalty: repeatPenalty,
+      );
+      
+      await for (final token in stream) {
+        result.write(token);
+      }
+      
+      return result.toString();
+    } catch (e) {
+      debugPrint('❌ Generation error: $e');
+      return 'Error during generation: $e';
+    }
+  }
+
+  /// Generate response with streaming and full chat history
+  Stream<String> generateHistoryChatStream({
+    required List<ChatMessage> messages,
+    int maxTokens = 512,
+    double temperature = 0.8,
+    double topP = 0.95,
+    int topK = 40,
+    double repeatPenalty = 1.1,
+  }) async* {
+    if (!_isModelLoaded || _controller == null) {
+      yield 'Error: No model loaded. Please load an offline AI model first.';
+      return;
+    }
+
+    _stopRequested = false;
+    
+    try {
+      final stream = _controller!.generateChat(
+        messages: messages,
+        maxTokens: maxTokens,
+        temperature: temperature,
+        topP: topP,
+        topK: topK,
+        repeatPenalty: repeatPenalty,
+      );
+      
+      await for (final token in stream) {
+        if (_stopRequested) {
+          debugPrint('⚠️ Generation stopped by user');
+          await _controller!.stop();
+          break;
+        }
+        yield token;
+      }
+    } catch (e) {
+      debugPrint('❌ Streaming generation error: $e');
+      yield '\n\nError during generation: $e';
+    }
+  }
+
+
   /// Generate text with streaming
   Stream<String> generateStream({
     required String prompt,
