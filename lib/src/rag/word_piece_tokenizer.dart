@@ -42,10 +42,14 @@ class WordPieceTokenizer {
   List<int> tokenize(String text, {int maxLen = 128}) {
     final List<int> tokenIds = [clsTokenId];
     
-    // Basic whitespace splitting and lowercasing.
-    // In a full implementation, you'd also want to handle punctuation 
-    // splitting correctly according to BERT's BasicTokenizer.
-    final words = text.toLowerCase().split(RegExp(r'\s+'));
+    // 1. Lowercase
+    text = text.toLowerCase();
+    
+    // 2. Split on punctuation (add spaces around punctuation)
+    text = _runSplitOnPunctuation(text);
+    
+    // 3. Basic whitespace splitting
+    final words = text.split(RegExp(r'\s+'));
 
     for (var word in words) {
       if (word.isEmpty) continue;
@@ -105,5 +109,15 @@ class WordPieceTokenizer {
     }
 
     return outputTokens;
+  }
+
+  /// Inserts a space around all punctuation characters so they are treated as
+  /// standalone tokens during whitespace splitting, matching BERT's BasicTokenizer.
+  String _runSplitOnPunctuation(String text) {
+    // Matches ASCII punctuation: 33-47, 58-64, 91-96, 123-126
+    // And Unicode punctuation category \p{P}
+    // We use a RegExp that encompasses both to mimic Python's unicodedata behavior.
+    final punctRegex = RegExp(r'[!-/:-@\[-`{-~]|\p{P}', unicode: true);
+    return text.replaceAllMapped(punctRegex, (match) => ' ${match.group(0)} ');
   }
 }

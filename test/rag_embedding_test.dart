@@ -18,9 +18,18 @@ void main() {
       await provider.initialize();
       final emb = await provider.embed("hello world");
       expect(emb.length, 384);
-      print('Successfully generated embedding of size \${emb.length}');
+      print('Successfully generated embedding of size ${emb.length}');
     } catch (e) {
-      print('Expected failure if native libraries are missing: \$e');
+      final errorStr = e.toString().toLowerCase();
+      final isNativeLibError = errorStr.contains('failed to load dynamic library') ||
+          errorStr.contains('cannot load') ||
+          errorStr.contains('.dll') ||
+          errorStr.contains('.so') ||
+          errorStr.contains('.dylib');
+      if (!isNativeLibError) {
+        rethrow;
+      }
+      print('Expected failure: native TFLite libraries are missing on the host: $e');
     }
   });
 }
