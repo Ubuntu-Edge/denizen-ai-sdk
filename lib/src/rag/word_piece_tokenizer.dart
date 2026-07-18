@@ -2,6 +2,11 @@ import 'package:flutter/services.dart';
 
 /// A custom WordPiece tokenizer that matches the BERT specification used by
 /// models like all-MiniLM-L6-v2.
+///
+/// IMPORTANT: maxLen must be 128, not 256. The Nihal2000 TFLite conversion
+/// was performed with tokenizer padding at length=128 (as documented in the
+/// model card). Using a different sequence length will produce input tensors
+/// of the wrong shape and cause inference errors or wrong outputs.
 class WordPieceTokenizer {
   final Map<String, int> _vocab = {};
   final String unkToken = '[UNK]';
@@ -32,7 +37,9 @@ class WordPieceTokenizer {
   }
 
   /// Tokenizes text into a list of token IDs, adding [CLS] and [SEP] tokens.
-  List<int> tokenize(String text, {int maxLen = 256}) {
+  ///
+  /// [maxLen] must be 128 to match the TFLite model's conversion parameters.
+  List<int> tokenize(String text, {int maxLen = 128}) {
     final List<int> tokenIds = [clsTokenId];
     
     // Basic whitespace splitting and lowercasing.
