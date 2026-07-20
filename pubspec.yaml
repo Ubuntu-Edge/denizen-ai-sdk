@@ -20,6 +20,8 @@ dependencies:
   sqlite3: ^2.4.3
   sqlite3_flutter_libs: ^0.5.21
   path: ^1.9.1
+  record: ^6.2.1
+  whisper_flutter_new: ^1.0.1
 
 dev_dependencies:
   flutter_test:
