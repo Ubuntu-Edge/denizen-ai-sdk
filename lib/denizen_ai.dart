@@ -335,9 +335,10 @@ class DenizenModelManager {
     final modelDir = Directory('${storageDir.path}/models/${model.author}');
     final finalFile = File('${modelDir.path}/${model.filename}');
 
-    // 2b. Check for pre-downloaded model in /sdcard/Download or /storage/emulated/0/Download
+    // 2b. Check for pre-downloaded model in /data/local/tmp, /sdcard/Download or /storage/emulated/0/Download
     if (!await finalFile.exists() && (model.filename != null)) {
       for (final altPath in [
+        '/data/local/tmp/${model.filename}',
         '/sdcard/Download/${model.filename}',
         '/storage/emulated/0/Download/${model.filename}',
       ]) {
