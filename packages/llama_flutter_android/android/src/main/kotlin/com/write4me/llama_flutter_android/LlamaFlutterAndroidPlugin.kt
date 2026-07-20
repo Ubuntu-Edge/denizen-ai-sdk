@@ -17,8 +17,14 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     private var currentModelPath: String? = null
 
     companion object {
+        private var isNativeLibraryLoaded = false
         init {
-            System.loadLibrary("llama_jni")
+            try {
+                System.loadLibrary("llama_jni")
+                isNativeLibraryLoaded = true
+            } catch (e: Throwable) {
+                android.util.Log.e("LlamaPlugin", "Failed to load llama_jni. Architecture might not be supported.", e)
+            }
         }
     }
 
@@ -37,6 +43,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun loadModel(config: ModelConfig, callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.failure(IllegalStateException("Native library llama_jni failed to load. Architecture might not be supported.")))
+            return
+        }
         scope.launch {
             try {
                 // Start foreground service for long-running task
@@ -78,6 +88,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun generate(request: GenerateRequest, callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.failure(IllegalStateException("Native library llama_jni failed to load.")))
+            return
+        }
         if (!isModelLoaded.get()) {
             callback(Result.failure(IllegalStateException("Model not loaded")))
             return
@@ -144,6 +158,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun stop(callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.success(Unit))
+            return
+        }
         isStopping.set(true)
         generationJob?.cancel()
         nativeStop()
@@ -151,6 +169,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun dispose(callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.success(Unit))
+            return
+        }
         scope.launch {
             try {
                 stop { }
@@ -175,6 +197,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun generateChat(request: ChatRequest, callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.failure(IllegalStateException("Native library llama_jni failed to load.")))
+            return
+        }
         if (!isModelLoaded.get()) {
             callback(Result.failure(IllegalStateException("Model not loaded")))
             return
@@ -256,6 +282,9 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun getContextInfo(): ContextInfo {
+        if (!isNativeLibraryLoaded) {
+            return ContextInfo(0, 0, 0.0)
+        }
         val tokensUsed = nativeGetTokensUsed().toLong()
         val contextSize = nativeGetContextSize().toLong()
         val usagePercentage = if (contextSize > 0) {
@@ -272,6 +301,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun clearContext(callback: (Result<Unit>) -> Unit) {
+        if (!isNativeLibraryLoaded) {
+            callback(Result.success(Unit))
+            return
+        }
         scope.launch {
             try {
                 nativeClearContext()
@@ -287,7 +320,9 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     }
 
     override fun setSystemPromptLength(length: Long) {
-        nativeSetSystemPromptLength(length.toInt())
+        if (isNativeLibraryLoaded) {
+            nativeSetSystemPromptLength(length.toInt())
+        }
     }
 
     /**
