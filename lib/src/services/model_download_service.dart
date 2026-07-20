@@ -166,44 +166,47 @@ class ModelDownloadService {
       }
       final response = await client.send(request);
 
-      if (response.statusCode != 200 && response.statusCode != 206) {
+      if (response.statusCode == 416) {
+        debugPrint('⚠️ HTTP 416: Range not satisfiable. Temp file is likely fully downloaded.');
+        // We skip reading the stream since it's already done
+      } else if (response.statusCode != 200 && response.statusCode != 206) {
         debugPrint('❌ HTTP Error: ${response.statusCode}');
         throw Exception('Download failed with status ${response.statusCode}. Please check your internet connection and try again.');
-      }
+      } else {
+        final totalBytes = (response.contentLength ?? 0) + startByte;
+        int receivedBytes = startByte;
+        final sink = tempFile.openWrite(mode: FileMode.append);
 
-      final totalBytes = (response.contentLength ?? 0) + startByte;
-      int receivedBytes = startByte;
-      final sink = tempFile.openWrite(mode: FileMode.append);
-
-      // Track download progress
-      await for (final chunk in response.stream) {
-        if (!_activeDownloads.containsKey(modelId)) {
-          // Download was cancelled
-          await sink.close();
-          if (await tempFile.exists()) {
-            await tempFile.delete();
+        // Track download progress
+        await for (final chunk in response.stream) {
+          if (!_activeDownloads.containsKey(modelId)) {
+            // Download was cancelled
+            await sink.close();
+            if (await tempFile.exists()) {
+              await tempFile.delete();
+            }
+            client.close();
+            return;
           }
-          client.close();
-          return;
+
+          sink.add(chunk);
+          receivedBytes += chunk.length;
+
+          final progress = totalBytes > 0 ? (receivedBytes / totalBytes) * 100 : 0;
+          final progressData = ModelDownloadProgress(
+            modelId: modelId,
+            stage: ModelDownloadStage.downloading,
+            progress: progress.toDouble(),
+            downloadedBytes: receivedBytes,
+            totalBytes: totalBytes,
+          );
+          
+          progressController.add(progressData);
+          yield progressData;
         }
-
-        sink.add(chunk);
-        receivedBytes += chunk.length;
-
-        final progress = totalBytes > 0 ? (receivedBytes / totalBytes) * 100 : 0;
-        final progressData = ModelDownloadProgress(
-          modelId: modelId,
-          stage: ModelDownloadStage.downloading,
-          progress: progress.toDouble(),
-          downloadedBytes: receivedBytes,
-          totalBytes: totalBytes,
-        );
-        
-        progressController.add(progressData);
-        yield progressData;
+        await sink.close();
       }
 
-      await sink.close();
       client.close();
       _downloadClients.remove(modelId);
 
