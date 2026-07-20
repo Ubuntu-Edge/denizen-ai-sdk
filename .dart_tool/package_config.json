@@ -165,7 +165,7 @@
     },
     {
       "name": "llama_flutter_android",
-      "rootUri": "file:///C:/Users/ibrahim.fadhili/AppData/Local/Pub/Cache/hosted/pub.dev/llama_flutter_android-0.1.4",
+      "rootUri": "../packages/llama_flutter_android",
       "packageUri": "lib/",
       "languageVersion": "3.3"
     },

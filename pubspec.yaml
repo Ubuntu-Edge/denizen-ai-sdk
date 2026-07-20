@@ -13,7 +13,8 @@ dependencies:
   path_provider: ^2.1.1
   shared_preferences: ^2.2.3
   http: ^1.1.0
-  llama_flutter_android: ^0.1.1
+  llama_flutter_android: 
+    path: ./packages/llama_flutter_android
   connectivity_plus: ^6.1.0
   tflite_flutter: ^0.12.1
   sqlite3: ^2.4.3

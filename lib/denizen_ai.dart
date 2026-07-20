@@ -16,12 +16,14 @@ import 'src/grammar/denizen_grammar.dart';
 import 'src/tools/denizen_tool.dart';
 import 'src/tools/denizen_tool_registry.dart';
 import 'src/tools/denizen_tool_session.dart';
+import 'src/vision/denizen_vision_session.dart';
 
 export 'src/orchestrator/denizen_orchestrator.dart';
 export 'src/grammar/denizen_grammar.dart';
 export 'src/tools/denizen_tool.dart';
 export 'src/tools/denizen_tool_registry.dart';
 export 'src/tools/denizen_tool_session.dart';
+export 'src/vision/denizen_vision_session.dart';
 
 /// The core entry point for the Denizen AI SDK.
 /// Abstracts away complex offline AI tasks like model management, 
@@ -101,6 +103,13 @@ class DenizenAI {
       systemPrompt: systemPrompt,
       maxTokens: maxTokens,
     );
+  }
+
+  /// Creates a [DenizenVisionSession] for multimodal image analysis.
+  /// 
+  /// The system must have loaded a model with a visual projector (LlaVA).
+  DenizenVisionSession createVisionSession({String? systemPrompt}) {
+    return DenizenVisionSession(systemPrompt: systemPrompt);
   }
 }
 

@@ -217,10 +217,9 @@ packages:
   llama_flutter_android:
     dependency: transitive
     description:
-      name: llama_flutter_android
-      sha256: ec08e2431a67d985c219b170defaf83bd406147216c269722f96a9e8f1751485
-      url: "https://pub.dev"
-    source: hosted
+      path: "../packages/llama_flutter_android"
+      relative: true
+    source: path
     version: "0.1.4"
   matcher:
     dependency: transitive
