@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/offline_ai_service.dart';
 import '../rag/vector_storage_service.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart' show ChatMessage;
@@ -11,8 +13,10 @@ abstract class OrchestratorCommand {}
 class InitCommand extends OrchestratorCommand {
   final SendPort sendPort;
   final bool inMemoryStorage;
+  final String? dbPath;
+  final RootIsolateToken? token;
   
-  InitCommand(this.sendPort, {this.inMemoryStorage = false});
+  InitCommand(this.sendPort, {this.inMemoryStorage = false, this.dbPath, this.token});
 }
 
 class ChatStreamCommand extends OrchestratorCommand {
@@ -87,14 +91,25 @@ class DenizenOrchestrator {
 
   bool get isReady => _commandPort != null;
 
-  Future<void> initialize({bool inMemoryStorage = false}) async {
+  Future<void> initialize({bool inMemoryStorage = false, String? dbPath}) async {
     if (_isolate != null) return;
+
+    String? path = dbPath;
+    if (!inMemoryStorage && path == null) {
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        path = '${dir.path}/denizen_rag.db';
+      } catch (e) {
+        debugPrint('Could not resolve documents dir on main isolate: $e');
+      }
+    }
 
     final receivePort = ReceivePort();
     
+    final token = RootIsolateToken.instance;
     _isolate = await Isolate.spawn(
       _isolateEntrypoint,
-      InitCommand(receivePort.sendPort, inMemoryStorage: inMemoryStorage),
+      InitCommand(receivePort.sendPort, inMemoryStorage: inMemoryStorage, dbPath: path, token: token),
     );
 
     final readyCompleter = Completer<void>();
@@ -155,12 +170,16 @@ class DenizenOrchestrator {
     final receivePort = ReceivePort();
     final sendPort = initCommand.sendPort;
     
+    if (initCommand.token != null) {
+      BackgroundIsolateBinaryMessenger.ensureInitialized(initCommand.token!);
+    }
+    
     // Initialize heavy services inside the isolate
     final aiService = OfflineAIService.instance;
     final vectorStorage = VectorStorageService();
     
     try {
-      await vectorStorage.initialize(inMemory: initCommand.inMemoryStorage);
+      await vectorStorage.initialize(dbPath: initCommand.dbPath, inMemory: initCommand.inMemoryStorage);
     } catch (e) {
       debugPrint('Failed to initialize vector storage in isolate: $e');
     }

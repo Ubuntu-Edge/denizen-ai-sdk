@@ -10,9 +10,12 @@ class VectorStorageService {
   
   bool get isInitialized => _db != null;
 
-  Future<void> initialize({bool inMemory = false}) async {
+  Future<void> initialize({String? dbPath, bool inMemory = false}) async {
     if (inMemory) {
       _db = sqlite3.openInMemory();
+    } else if (dbPath != null) {
+      _dbPath = dbPath;
+      _db = sqlite3.open(_dbPath!);
     } else {
       final dir = await getApplicationDocumentsDirectory();
       _dbPath = '${dir.path}/denizen_rag.db';
