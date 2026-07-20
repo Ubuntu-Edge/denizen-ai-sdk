@@ -11,6 +11,7 @@
         "flutter",
         "http",
         "llama_flutter_android",
+        "path",
         "path_provider",
         "shared_preferences",
         "sqlite3",
@@ -58,6 +59,11 @@
         "test_api",
         "vector_math"
       ]
+    },
+    {
+      "name": "path",
+      "version": "1.9.1",
+      "dependencies": []
     },
     {
       "name": "sqlite3_flutter_libs",
@@ -165,11 +171,6 @@
     {
       "name": "vm_service",
       "version": "15.2.0",
-      "dependencies": []
-    },
-    {
-      "name": "path",
-      "version": "1.9.1",
       "dependencies": []
     },
     {
