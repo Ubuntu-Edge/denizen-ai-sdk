@@ -16,10 +16,20 @@ class ModelDownloadService {
   final Map<String, http.Client> _downloadClients = {};
   static const String _activeDownloadsKey = 'active_downloads';
 
+  Future<SharedPreferences?> _getPrefsSafely() async {
+    try {
+      return await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('⚠️ SharedPreferences unavailable in ModelDownloadService: $e');
+      return null;
+    }
+  }
+
   /// Save active downloads to SharedPreferences for persistence
   Future<void> _saveActiveDownloads() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefsSafely();
+      if (prefs == null) return;
       final activeIds = _activeDownloads.keys.toList();
       await prefs.setStringList(_activeDownloadsKey, activeIds);
     } catch (e) {
@@ -30,7 +40,8 @@ class ModelDownloadService {
   /// Get list of active downloads from SharedPreferences
   Future<List<String>> getActiveDownloads() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefsSafely();
+      if (prefs == null) return [];
       return prefs.getStringList(_activeDownloadsKey) ?? [];
     } catch (e) {
       debugPrint('⚠️ Failed to load active downloads: $e');
@@ -41,7 +52,8 @@ class ModelDownloadService {
   /// Clear active download from SharedPreferences
   Future<void> _clearActiveDownload(String modelId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefsSafely();
+      if (prefs == null) return;
       final activeIds = prefs.getStringList(_activeDownloadsKey) ?? [];
       activeIds.remove(modelId);
       await prefs.setStringList(_activeDownloadsKey, activeIds);
@@ -477,7 +489,8 @@ class ModelDownloadService {
   /// Get the custom model path if set
   Future<String?> getCustomModelPath() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final prefs = await _getPrefsSafely();
+      if (prefs == null) return null;
       final path = prefs.getString(_customModelPathKey);
       if (path != null && await File(path).exists()) {
         return path;
@@ -503,8 +516,10 @@ class ModelDownloadService {
         return false;
       }
       
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_customModelPathKey, filePath);
+      final prefs = await _getPrefsSafely();
+      if (prefs != null) {
+        await prefs.setString(_customModelPathKey, filePath);
+      }
       debugPrint('✅ Custom model path set: $filePath');
       return true;
     } catch (e) {
@@ -516,8 +531,10 @@ class ModelDownloadService {
   /// Clear the custom model path
   Future<void> clearCustomModelPath() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_customModelPathKey);
+      final prefs = await _getPrefsSafely();
+      if (prefs != null) {
+        await prefs.remove(_customModelPathKey);
+      }
       debugPrint('✅ Custom model path cleared');
     } catch (e) {
       debugPrint('⚠️ Error clearing custom model path: $e');
