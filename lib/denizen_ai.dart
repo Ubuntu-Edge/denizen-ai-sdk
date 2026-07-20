@@ -335,6 +335,22 @@ class DenizenModelManager {
     final modelDir = Directory('${storageDir.path}/models/${model.author}');
     final finalFile = File('${modelDir.path}/${model.filename}');
 
+    // 2b. Check for pre-downloaded model in /sdcard/Download or /storage/emulated/0/Download
+    if (!await finalFile.exists() && (model.filename != null)) {
+      for (final altPath in [
+        '/sdcard/Download/${model.filename}',
+        '/storage/emulated/0/Download/${model.filename}',
+      ]) {
+        final altFile = File(altPath);
+        if (await altFile.exists() && (await altFile.length()) > 1024 * 1024) {
+          debugPrint('📦 Found pre-pushed model at $altPath, importing...');
+          await finalFile.parent.create(recursive: true);
+          await altFile.copy(finalFile.path);
+          break;
+        }
+      }
+    }
+
     // 3. Update last accessed timestamp
     await prefs?.setInt('denizen_last_accessed_$modelId', DateTime.now().millisecondsSinceEpoch);
 
