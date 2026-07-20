@@ -223,16 +223,25 @@ class DenizenModelManager {
     }
   }
 
+  Future<SharedPreferences?> _getPrefsSafely() async {
+    try {
+      return await SharedPreferences.getInstance();
+    } catch (e) {
+      debugPrint('⚠️ SharedPreferences unavailable: $e');
+      return null;
+    }
+  }
+
   /// Perform LRU storage eviction to reclaim space.
   Future<void> _performLRUEviction(int requiredBytes, {required String excludingModelId}) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefsSafely();
     
     // Get all downloaded model paths
     final List<String> downloadedPaths = await _downloadService.getDownloadedModelPaths();
     if (downloadedPaths.isEmpty) return;
 
     final List<OfflineModel> recommendedModels = DefaultOfflineModels.getMedicalModels();
-    final List<String> residentModels = prefs.getStringList('denizen_resident_models') ?? [];
+    final List<String> residentModels = prefs?.getStringList('denizen_resident_models') ?? [];
 
     // Find models we can evict
     final List<Map<String, dynamic>> evictableCandidates = [];
@@ -259,7 +268,7 @@ class DenizenModelManager {
       if (_aiService.isModelLoaded && _aiService.loadedModelPath == path) continue;
       
       // Get last accessed timestamp (default to 0 if not set)
-      final lastAccessed = prefs.getInt('denizen_last_accessed_$id') ?? 0;
+      final lastAccessed = prefs?.getInt('denizen_last_accessed_$id') ?? 0;
       
       evictableCandidates.add({
         'path': path,
@@ -288,7 +297,7 @@ class DenizenModelManager {
       await _downloadService.deleteModel(path);
       
       // Clean up pref timestamp
-      await prefs.remove('denizen_last_accessed_$id');
+      await prefs?.remove('denizen_last_accessed_$id');
     }
   }
 
@@ -305,19 +314,19 @@ class DenizenModelManager {
       throw ArgumentError('Model not found in recommendations: $modelId');
     }
 
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _getPrefsSafely();
 
     // Track residency configuration persistently
-    final List<String> residentModels = prefs.getStringList('denizen_resident_models') ?? [];
+    final List<String> residentModels = prefs?.getStringList('denizen_resident_models') ?? [];
     if (requireResidency) {
       if (!residentModels.contains(modelId)) {
         residentModels.add(modelId);
-        await prefs.setStringList('denizen_resident_models', residentModels);
+        await prefs?.setStringList('denizen_resident_models', residentModels);
       }
     } else {
       if (residentModels.contains(modelId)) {
         residentModels.remove(modelId);
-        await prefs.setStringList('denizen_resident_models', residentModels);
+        await prefs?.setStringList('denizen_resident_models', residentModels);
       }
     }
 
@@ -327,7 +336,7 @@ class DenizenModelManager {
     final finalFile = File('${modelDir.path}/${model.filename}');
 
     // 3. Update last accessed timestamp
-    await prefs.setInt('denizen_last_accessed_$modelId', DateTime.now().millisecondsSinceEpoch);
+    await prefs?.setInt('denizen_last_accessed_$modelId', DateTime.now().millisecondsSinceEpoch);
 
     // 4. Check if file already exists locally
     final bool exists = await finalFile.exists() && (await finalFile.length()) > 1024 * 1024;

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denizen_ai/src/rag/document_ingestion_service.dart';
 import 'package:denizen_ai/src/rag/vector_storage_service.dart';
@@ -21,7 +22,7 @@ class FakeVectorStorageService implements VectorStorageService {
   }
   
   @override
-  Future<void> initialize({bool inMemory = false}) async {}
+  Future<void> initialize({String? dbPath, bool inMemory = false}) async {}
   
   @override
   List<Map<String, dynamic>> search(List<double> queryEmbedding, {int limit = 5}) => [];
