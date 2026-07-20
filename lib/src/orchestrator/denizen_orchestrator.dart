@@ -29,6 +29,14 @@ class ChatCommand extends OrchestratorCommand {
   ChatCommand(this.id, this.messages);
 }
 
+class VectorSearchCommand extends OrchestratorCommand {
+  final int id;
+  final List<double> queryEmbedding;
+  final int limit;
+
+  VectorSearchCommand(this.id, this.queryEmbedding, {this.limit = 3});
+}
+
 abstract class OrchestratorEvent {}
 
 class IsolateReadyEvent extends OrchestratorEvent {
@@ -53,6 +61,14 @@ class ChatResponseEvent extends OrchestratorEvent {
   ChatResponseEvent(this.id, this.response, {this.error});
 }
 
+class VectorSearchResponseEvent extends OrchestratorEvent {
+  final int id;
+  final List<Map<String, dynamic>> results;
+  final String? error;
+
+  VectorSearchResponseEvent(this.id, this.results, {this.error});
+}
+
 /// The DenizenOrchestrator manages a persistent background isolate
 /// for heavy AI operations (LLM generation and Vector search).
 class DenizenOrchestrator {
@@ -66,6 +82,7 @@ class DenizenOrchestrator {
   
   int _requestIdCounter = 0;
   final Map<int, Completer<String>> _chatCompleters = {};
+  final Map<int, Completer<List<Map<String, dynamic>>>> _searchCompleters = {};
   final Map<int, StreamController<String>> _streamControllers = {};
 
   bool get isReady => _commandPort != null;
@@ -93,6 +110,15 @@ class DenizenOrchestrator {
             completer.completeError(Exception(message.error));
           } else {
             completer.complete(message.response);
+          }
+        }
+      } else if (message is VectorSearchResponseEvent) {
+        final completer = _searchCompleters.remove(message.id);
+        if (completer != null) {
+          if (message.error != null) {
+            completer.completeError(Exception(message.error));
+          } else {
+            completer.complete(message.results);
           }
         }
       } else if (message is ChatStreamEvent) {
@@ -159,6 +185,13 @@ class DenizenOrchestrator {
         } catch (e) {
           sendPort.send(ChatStreamEvent(message.id, '', error: e.toString()));
         }
+      } else if (message is VectorSearchCommand) {
+        try {
+          final results = vectorStorage.search(message.queryEmbedding, limit: message.limit);
+          sendPort.send(VectorSearchResponseEvent(message.id, results));
+        } catch (e) {
+          sendPort.send(VectorSearchResponseEvent(message.id, [], error: e.toString()));
+        }
       }
     });
   }
@@ -185,5 +218,17 @@ class DenizenOrchestrator {
     
     _commandPort!.send(ChatStreamCommand(id, messages));
     return controller.stream;
+  }
+
+  /// Offloads vector similarity search to the background isolate.
+  Future<List<Map<String, dynamic>>> searchVector(List<double> queryEmbedding, {int limit = 3}) {
+    if (_commandPort == null) throw Exception('Orchestrator not initialized');
+
+    final id = _requestIdCounter++;
+    final completer = Completer<List<Map<String, dynamic>>>();
+    _searchCompleters[id] = completer;
+
+    _commandPort!.send(VectorSearchCommand(id, queryEmbedding, limit: limit));
+    return completer.future;
   }
 }

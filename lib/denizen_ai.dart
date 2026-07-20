@@ -11,6 +11,17 @@ import 'src/models/offline_model.dart';
 import 'src/models/default_offline_models.dart';
 import 'src/rag/embedding_provider.dart';
 import 'src/rag/vector_storage_service.dart';
+import 'src/orchestrator/denizen_orchestrator.dart';
+import 'src/grammar/denizen_grammar.dart';
+import 'src/tools/denizen_tool.dart';
+import 'src/tools/denizen_tool_registry.dart';
+import 'src/tools/denizen_tool_session.dart';
+
+export 'src/orchestrator/denizen_orchestrator.dart';
+export 'src/grammar/denizen_grammar.dart';
+export 'src/tools/denizen_tool.dart';
+export 'src/tools/denizen_tool_registry.dart';
+export 'src/tools/denizen_tool_session.dart';
 
 /// The core entry point for the Denizen AI SDK.
 /// Abstracts away complex offline AI tasks like model management, 
@@ -74,6 +85,20 @@ class DenizenAI {
       embeddingProvider,
       storageService,
       baseSystemPrompt: baseSystemPrompt,
+      maxTokens: maxTokens,
+    );
+  }
+
+  /// Create a Tool-enabled session that automatically handles local function calling.
+  DenizenToolSession createToolSession({
+    required DenizenToolRegistry registry,
+    String? systemPrompt,
+    int? maxTokens,
+  }) {
+    return DenizenToolSession(
+      _aiService,
+      registry,
+      systemPrompt: systemPrompt,
       maxTokens: maxTokens,
     );
   }
@@ -557,8 +582,14 @@ class DenizenRagSession extends DenizenSession {
     // 1. Embed the user prompt
     final queryEmbedding = await _embeddingProvider.embed(prompt);
     
-    // 2. Retrieve relevant chunks
-    final chunks = _storageService.search(queryEmbedding, limit: 3);
+    // 2. Retrieve relevant chunks (using background orchestrator if available)
+    final orchestrator = DenizenOrchestrator();
+    List<Map<String, dynamic>> chunks;
+    if (orchestrator.isReady) {
+      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+    } else {
+      chunks = _storageService.search(queryEmbedding, limit: 3);
+    }
     
     // 3. Inject into context
     _injectKnowledge(chunks);
@@ -572,8 +603,14 @@ class DenizenRagSession extends DenizenSession {
     // 1. Embed the user prompt
     final queryEmbedding = await _embeddingProvider.embed(prompt);
     
-    // 2. Retrieve relevant chunks
-    final chunks = _storageService.search(queryEmbedding, limit: 3);
+    // 2. Retrieve relevant chunks (using background orchestrator if available)
+    final orchestrator = DenizenOrchestrator();
+    List<Map<String, dynamic>> chunks;
+    if (orchestrator.isReady) {
+      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+    } else {
+      chunks = _storageService.search(queryEmbedding, limit: 3);
+    }
     
     // 3. Inject into context
     _injectKnowledge(chunks);
