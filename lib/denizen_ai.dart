@@ -9,6 +9,8 @@ import 'src/services/offline_ai_service.dart';
 import 'src/services/model_download_service.dart';
 import 'src/models/offline_model.dart';
 import 'src/models/default_offline_models.dart';
+import 'src/rag/embedding_provider.dart';
+import 'src/rag/vector_storage_service.dart';
 
 /// The core entry point for the Denizen AI SDK.
 /// Abstracts away complex offline AI tasks like model management, 
@@ -55,6 +57,23 @@ class DenizenAI {
     return DenizenSession(
       _aiService,
       systemPrompt: systemPrompt,
+      maxTokens: maxTokens,
+    );
+  }
+
+  /// Create a RAG-enabled session that automatically queries the vector DB
+  /// and injects relevant knowledge chunks into the system prompt context.
+  DenizenRagSession createRagSession({
+    required EmbeddingProvider embeddingProvider,
+    required VectorStorageService storageService,
+    String? baseSystemPrompt,
+    int? maxTokens,
+  }) {
+    return DenizenRagSession(
+      _aiService,
+      embeddingProvider,
+      storageService,
+      baseSystemPrompt: baseSystemPrompt,
       maxTokens: maxTokens,
     );
   }
@@ -493,5 +512,76 @@ class DenizenSession {
     }
   }
 }
+
+/// A RAG-enabled chat session that automatically intercepts user queries, 
+/// retrieves relevant document chunks from the vector database, and augments 
+/// the context window with the findings before generating a response.
+class DenizenRagSession extends DenizenSession {
+  final EmbeddingProvider _embeddingProvider;
+  final VectorStorageService _storageService;
+  final String _baseSystemPrompt;
+
+  DenizenRagSession(
+    super.aiService,
+    this._embeddingProvider,
+    this._storageService, {
+    String? baseSystemPrompt,
+    super.maxTokens,
+  }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful assistant.',
+       super(systemPrompt: baseSystemPrompt ?? 'You are a helpful assistant.');
+
+  /// Injects the retrieved chunks into the system prompt context.
+  void _injectKnowledge(List<Map<String, dynamic>> chunks) {
+    if (chunks.isEmpty) return;
+
+    final StringBuffer knowledgeBuffer = StringBuffer();
+    knowledgeBuffer.writeln(_baseSystemPrompt);
+    knowledgeBuffer.writeln('\nUse the following retrieved context to answer the user:');
+    
+    for (var i = 0; i < chunks.length; i++) {
+      knowledgeBuffer.writeln('\n--- Document Snippet ${i + 1} ---');
+      knowledgeBuffer.writeln(chunks[i]['text_content']);
+    }
+
+    // Replace the system prompt (which is always at index 0)
+    if (_history.isNotEmpty && _history.first.role == DenizenRole.system) {
+      _history[0] = DenizenMessage(
+        role: DenizenRole.system,
+        content: knowledgeBuffer.toString(),
+      );
+    }
+  }
+
+  @override
+  Future<String> chat(String prompt) async {
+    // 1. Embed the user prompt
+    final queryEmbedding = await _embeddingProvider.embed(prompt);
+    
+    // 2. Retrieve relevant chunks
+    final chunks = _storageService.search(queryEmbedding, limit: 3);
+    
+    // 3. Inject into context
+    _injectKnowledge(chunks);
+
+    // 4. Proceed with standard chat
+    return super.chat(prompt);
+  }
+
+  @override
+  Stream<String> streamChat(String prompt) async* {
+    // 1. Embed the user prompt
+    final queryEmbedding = await _embeddingProvider.embed(prompt);
+    
+    // 2. Retrieve relevant chunks
+    final chunks = _storageService.search(queryEmbedding, limit: 3);
+    
+    // 3. Inject into context
+    _injectKnowledge(chunks);
+
+    // 4. Proceed with standard streaming chat
+    yield* super.streamChat(prompt);
+  }
+}
+
 
 
