@@ -326,6 +326,18 @@
       "languageVersion": "3.1"
     },
     {
+      "name": "sqlite3",
+      "rootUri": "file:///C:/Users/ibrahim.fadhili/AppData/Local/Pub/Cache/hosted/pub.dev/sqlite3-2.9.4",
+      "packageUri": "lib/",
+      "languageVersion": "3.5"
+    },
+    {
+      "name": "sqlite3_flutter_libs",
+      "rootUri": "file:///C:/Users/ibrahim.fadhili/AppData/Local/Pub/Cache/hosted/pub.dev/sqlite3_flutter_libs-0.5.42",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "stack_trace",
       "rootUri": "file:///C:/Users/ibrahim.fadhili/AppData/Local/Pub/Cache/hosted/pub.dev/stack_trace-1.12.1",
       "packageUri": "lib/",

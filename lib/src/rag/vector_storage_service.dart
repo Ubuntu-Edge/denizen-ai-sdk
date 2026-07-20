@@ -1,0 +1,115 @@
+import 'dart:io';
+import 'package:sqlite3/sqlite3.dart';
+import 'package:path_provider/path_provider.dart';
+
+class VectorStorageService {
+  Database? _db;
+  
+  bool get isInitialized => _db != null;
+
+  Future<void> initialize() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final dbPath = '${dir.path}/denizen_rag.db';
+    
+    _db = sqlite3.open(dbPath);
+    
+    // Enable WAL mode for better performance
+    _db!.execute('PRAGMA journal_mode=WAL;');
+    
+    _initializeSchema();
+  }
+
+  void _initializeSchema() {
+    _db!.execute('''
+      CREATE TABLE IF NOT EXISTS documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        source_uri TEXT,
+        ingested_at INTEGER
+      );
+    ''');
+    
+    _db!.execute('''
+      CREATE TABLE IF NOT EXISTS document_chunks (
+        chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id INTEGER,
+        text_content TEXT,
+        chunk_index INTEGER,
+        FOREIGN KEY(doc_id) REFERENCES documents(id) ON DELETE CASCADE
+      );
+    ''');
+    
+    // Virtual table for embeddings via sqlite-vec
+    _db!.execute('''
+      CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
+        embedding float[384]
+      );
+    ''');
+  }
+
+  /// Inserts a chunk and its corresponding embedding.
+  int insertChunk(int docId, String textContent, int chunkIndex, List<double> embedding) {
+    if (_db == null) throw Exception("VectorStorageService not initialized");
+    
+    final stmtChunk = _db!.prepare('''
+      INSERT INTO document_chunks (doc_id, text_content, chunk_index)
+      VALUES (?, ?, ?)
+    ''');
+    stmtChunk.execute([docId, textContent, chunkIndex]);
+    final chunkId = _db!.lastInsertRowId;
+    stmtChunk.dispose();
+    
+    // Format embedding as JSON array string for sqlite-vec
+    final embeddingStr = '[${embedding.join(",")}]';
+    
+    final stmtVec = _db!.prepare('''
+      INSERT INTO vec_chunks (rowid, embedding)
+      VALUES (?, ?)
+    ''');
+    stmtVec.execute([chunkId, embeddingStr]);
+    stmtVec.dispose();
+
+    return chunkId;
+  }
+
+  /// Searches for the most similar chunks using cosine distance
+  List<Map<String, dynamic>> search(List<double> queryEmbedding, {int limit = 5}) {
+    if (_db == null) throw Exception("VectorStorageService not initialized");
+    
+    final embeddingStr = '[${queryEmbedding.join(",")}]';
+    
+    // In sqlite-vec, lower distance = more similar
+    final stmt = _db!.prepare('''
+      SELECT 
+        c.chunk_id,
+        c.doc_id,
+        c.text_content,
+        v.distance
+      FROM vec_chunks v
+      JOIN document_chunks c ON c.chunk_id = v.rowid
+      WHERE v.embedding MATCH ? 
+      ORDER BY v.distance
+      LIMIT ?
+    ''');
+    
+    final resultSet = stmt.select([embeddingStr, limit]);
+    stmt.dispose();
+    
+    final results = <Map<String, dynamic>>[];
+    for (final row in resultSet) {
+      results.add({
+        'chunk_id': row['chunk_id'],
+        'doc_id': row['doc_id'],
+        'text_content': row['text_content'],
+        'distance': row['distance'],
+      });
+    }
+    
+    return results;
+  }
+
+  void dispose() {
+    _db?.dispose();
+    _db = null;
+  }
+}

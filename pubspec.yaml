@@ -16,6 +16,8 @@ dependencies:
   llama_flutter_android: ^0.1.1
   connectivity_plus: ^6.1.0
   tflite_flutter: ^0.12.1
+  sqlite3: ^2.4.3
+  sqlite3_flutter_libs: ^0.5.21
 
 dev_dependencies:
   flutter_test:

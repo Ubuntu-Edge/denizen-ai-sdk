@@ -13,6 +13,8 @@
         "llama_flutter_android",
         "path_provider",
         "shared_preferences",
+        "sqlite3",
+        "sqlite3_flutter_libs",
         "tflite_flutter"
       ],
       "devDependencies": [
@@ -434,6 +436,16 @@
       "dependencies": []
     },
     {
+      "name": "webdriver",
+      "version": "3.1.0",
+      "dependencies": [
+        "matcher",
+        "path",
+        "stack_trace",
+        "sync_http"
+      ]
+    },
+    {
       "name": "fuchsia_remote_debug_protocol",
       "version": "0.0.0",
       "dependencies": [
@@ -551,6 +563,20 @@
       ]
     },
     {
+      "name": "sync_http",
+      "version": "0.3.1",
+      "dependencies": []
+    },
+    {
+      "name": "process",
+      "version": "5.0.5",
+      "dependencies": [
+        "file",
+        "path",
+        "platform"
+      ]
+    },
+    {
       "name": "xml",
       "version": "6.6.1",
       "dependencies": [
@@ -580,28 +606,23 @@
       ]
     },
     {
-      "name": "process",
-      "version": "5.0.5",
+      "name": "sqlite3",
+      "version": "2.9.4",
       "dependencies": [
-        "file",
+        "collection",
+        "ffi",
+        "meta",
         "path",
-        "platform"
+        "typed_data",
+        "web"
       ]
     },
     {
-      "name": "webdriver",
-      "version": "3.1.0",
+      "name": "sqlite3_flutter_libs",
+      "version": "0.5.42",
       "dependencies": [
-        "matcher",
-        "path",
-        "stack_trace",
-        "sync_http"
+        "flutter"
       ]
-    },
-    {
-      "name": "sync_http",
-      "version": "0.3.1",
-      "dependencies": []
     }
   ],
   "configVersion": 1
