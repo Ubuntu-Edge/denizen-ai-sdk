@@ -1,20 +1,40 @@
 import 'dart:io';
+import 'dart:ffi';
 import 'package:sqlite3/sqlite3.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 class VectorStorageService {
   Database? _db;
   
   bool get isInitialized => _db != null;
 
-  Future<void> initialize() async {
-    final dir = await getApplicationDocumentsDirectory();
-    final dbPath = '${dir.path}/denizen_rag.db';
-    
-    _db = sqlite3.open(dbPath);
+  Future<void> initialize({bool inMemory = false}) async {
+    if (inMemory) {
+      _db = sqlite3.openInMemory();
+    } else {
+      final dir = await getApplicationDocumentsDirectory();
+      final dbPath = '${dir.path}/denizen_rag.db';
+      _db = sqlite3.open(dbPath);
+    }
     
     // Enable WAL mode for better performance
     _db!.execute('PRAGMA journal_mode=WAL;');
+    
+    // Load sqlite-vec extension via FFI
+    final DynamicLibrary lib;
+    if (Platform.isAndroid) {
+      lib = DynamicLibrary.open('libsqlite_vec.so');
+    } else if (Platform.isWindows) {
+      // Point to the pre-downloaded dll for host testing using absolute path
+      final dllPath = p.join(Directory.current.path, 'build', 'windows_deps', 'vec0.dll');
+      lib = DynamicLibrary.open(dllPath);
+    } else {
+      throw UnsupportedError('Unsupported platform for sqlite-vec');
+    }
+    
+    // Explicitly register the vec0 extension with this database connection
+    sqlite3.ensureExtensionLoaded(SqliteExtension.inLibrary(lib, 'sqlite3_vec_init'));
     
     _initializeSchema();
   }

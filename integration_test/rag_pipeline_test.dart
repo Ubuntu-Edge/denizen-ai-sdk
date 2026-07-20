@@ -32,11 +32,7 @@ void main() {
       await fakeEmbeddingProvider.initialize();
       
       storageService = VectorStorageService();
-      try {
-        await storageService.initialize();
-      } catch (e) {
-        // Will skip gracefully if extension is missing
-      }
+      await storageService.initialize();
       
       ingestionService = DocumentIngestionService(fakeEmbeddingProvider, storageService);
     });
@@ -46,11 +42,6 @@ void main() {
     });
 
     testWidgets('Ingests document and retrieves via similarity search', (WidgetTester tester) async {
-      if (!storageService.isInitialized) {
-        print('Skipping E2E test due to missing sqlite-vec extension on host');
-        return;
-      }
-
       await ingestionService.ingestText(
         1,
         "Apple is a fruit",

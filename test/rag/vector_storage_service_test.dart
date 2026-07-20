@@ -20,23 +20,13 @@ void main() {
     });
 
     test('initialize throws or succeeds depending on vec0 availability', () async {
-      try {
-        await storageService.initialize();
-        expect(storageService.isInitialized, true);
-      } catch (e) {
-        // If vec0 is not found, sqlite3 throws an exception during schema creation.
-        // We log it and let the test pass as a "skipped" capability on host.
-        print('Skipping DB test: vec0 extension not available in test env: $e');
-      }
+      // Now that we download vec0.dll for windows host testing, this should simply succeed.
+      await storageService.initialize(inMemory: true);
+      expect(storageService.isInitialized, true);
     });
 
-    test('insert and search chunks (if initialized)', () async {
-      try {
-        await storageService.initialize();
-      } catch (e) {
-        print('Skipping insert/search test: vec0 extension not available');
-        return;
-      }
+    test('insert and search chunks', () async {
+      await storageService.initialize(inMemory: true);
 
       // 1. Insert a document record (bypassing service for now just to get a doc_id, 
       // or using the foreign key bypass if PRAGMA foreign_keys=OFF is default)

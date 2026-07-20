@@ -21,7 +21,7 @@ class FakeVectorStorageService implements VectorStorageService {
   }
   
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize({bool inMemory = false}) async {}
   
   @override
   List<Map<String, dynamic>> search(List<double> queryEmbedding, {int limit = 5}) => [];
