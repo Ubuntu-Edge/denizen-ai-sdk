@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 class VectorStorageService {
   Database? _db;
+  String? _dbPath;
   
   bool get isInitialized => _db != null;
 
@@ -14,8 +15,8 @@ class VectorStorageService {
       _db = sqlite3.openInMemory();
     } else {
       final dir = await getApplicationDocumentsDirectory();
-      final dbPath = '${dir.path}/denizen_rag.db';
-      _db = sqlite3.open(dbPath);
+      _dbPath = '${dir.path}/denizen_rag.db';
+      _db = sqlite3.open(_dbPath!);
     }
     
     // Enable WAL mode for better performance
@@ -126,6 +127,39 @@ class VectorStorageService {
     }
     
     return results;
+  }
+
+  /// Safely exports the current database to a specified destination path.
+  /// Used for cloud backups and cross-device sync.
+  Future<File> exportDatabase(String destinationPath) async {
+    if (_dbPath == null) throw Exception("Cannot export an in-memory or uninitialized database.");
+    
+    // Checkpoint the WAL file to ensure all transactions are flushed to the main DB file
+    _db!.execute('PRAGMA wal_checkpoint(TRUNCATE);');
+    
+    final sourceFile = File(_dbPath!);
+    return await sourceFile.copy(destinationPath);
+  }
+
+  /// Safely replaces the current database with a database from a source file.
+  /// Overwrites the current RAG memory.
+  Future<void> importDatabase(String sourceFilePath) async {
+    if (_dbPath == null) throw Exception("Cannot import into an in-memory or uninitialized database.");
+    
+    final sourceFile = File(sourceFilePath);
+    if (!await sourceFile.exists()) {
+      throw Exception("Source database file does not exist at $sourceFilePath");
+    }
+
+    // Close existing connection
+    dispose();
+
+    // Copy over
+    final targetFile = File(_dbPath!);
+    await sourceFile.copy(targetFile.path);
+
+    // Re-initialize
+    await initialize(inMemory: false);
   }
 
   void dispose() {

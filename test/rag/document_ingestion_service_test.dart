@@ -28,6 +28,14 @@ class FakeVectorStorageService implements VectorStorageService {
   
   @override
   void dispose() {}
+  
+  @override
+  Future<File> exportDatabase(String destinationPath) async {
+    return File(destinationPath);
+  }
+  
+  @override
+  Future<void> importDatabase(String sourceFilePath) async {}
 }
 
 void main() {
