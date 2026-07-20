@@ -231,7 +231,15 @@ class ModelDownloadService {
         }
       } else {
         // Just rename temp file
-        await tempFile.rename(finalFile.path);
+        // On Windows, rename can fail if the file was just closed due to AV or OS locks.
+        try {
+          await tempFile.rename(finalFile.path);
+        } catch (e) {
+          debugPrint('Rename failed, attempting copy and delete: $e');
+          await Future.delayed(const Duration(milliseconds: 500));
+          await tempFile.copy(finalFile.path);
+          await tempFile.delete();
+        }
       }
 
       // Verify file
