@@ -6,7 +6,79 @@ class DefaultOfflineModels {
   /// Get list of recommended models for CHW medical use
   static List<OfflineModel> getMedicalModels() {
     return [
-      // Priority 1: Best for Medical Reasoning
+      // Priority 1: Ultra-lightweight & Fast (Default Recommended for Mobile)
+      OfflineModel(
+        id: 'qwen2.5-0.5b-q4',
+        name: 'Qwen2.5 0.5B Instruct',
+        author: 'Alibaba',
+        size: 398000000, // ~398 MB
+        downloadUrl:
+            'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+        filename: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+        quantization: 'Q4_K_M',
+        description:
+            'Ultra-lightweight model (~398MB). Fast inference, low RAM usage, ideal for mobile devices.',
+        tags: ['lightweight', 'fast', 'mobile', 'recommended'],
+        contextSize: 4096,
+        isDownloaded: false,
+        downloadProgress: 0,
+      ),
+
+      // Priority 2: Compact Testing Model
+      OfflineModel(
+        id: 'smollm2-360m-q4',
+        name: 'SmolLM2 360M Instruct',
+        author: 'HuggingFace',
+        size: 228000000, // ~228 MB
+        downloadUrl:
+            'https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf',
+        filename: 'SmolLM2-360M-Instruct-Q4_K_M.gguf',
+        quantization: 'Q4_K_M',
+        description:
+            'Smallest model (~228MB). Loads instantly with minimal RAM usage, ideal for low-end phones.',
+        tags: ['testing', 'ultra-lightweight', 'compact'],
+        contextSize: 2048,
+        isDownloaded: false,
+        downloadProgress: 0,
+      ),
+
+      // Priority 3: High Quality Mobile Model
+      OfflineModel(
+        id: 'llama-3.2-1b-q4',
+        name: 'Llama 3.2 1B Instruct',
+        author: 'Meta',
+        size: 758000000, // ~758 MB
+        downloadUrl:
+            'https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+        filename: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+        quantization: 'Q4_K_M',
+        description:
+            'Great balance of intelligence and size (~758MB). Fast instruction following for general tasks.',
+        tags: ['instructions', 'balanced', 'quality'],
+        contextSize: 4096,
+        isDownloaded: false,
+        downloadProgress: 0,
+      ),
+
+      // Priority 4: Qwen 1.5B (Quantized Q4_K_M)
+      OfflineModel(
+        id: 'qwen2.5-1.5b-q4',
+        name: 'Qwen2.5 1.5B Instruct (Q4)',
+        author: 'Alibaba',
+        size: 980000000, // ~980 MB
+        downloadUrl:
+            'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        filename: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        quantization: 'Q4_K_M',
+        description:
+            'Higher capability model (~980MB). Excellent reasoning while keeping RAM under 1.5GB.',
+        tags: ['reasoning', 'multilingual', 'high-quality'],
+        contextSize: 4096,
+        isDownloaded: false,
+        downloadProgress: 0,
+      ),
+
+      // Priority 5: Phi-3.5 Mini (High RAM Devices Only)
       OfflineModel(
         id: 'phi-3.5-mini-q4',
         name: 'Phi-3.5 Mini Instruct',
@@ -17,81 +89,9 @@ class DefaultOfflineModels {
         filename: 'phi-3.5-mini-instruct-Q4_K_M.gguf',
         quantization: 'Q4_K_M',
         description:
-            'Excellent for medical reasoning, multilingual support, and structured responses. Recommended for CHW use.',
-        tags: ['medical', 'reasoning', 'multilingual', 'recommended'],
+            'Large model (2.39 GB). High reasoning power, requires devices with 6GB+ RAM.',
+        tags: ['medical', 'heavy', 'high-ram'],
         contextSize: 4096,
-        isDownloaded: false,
-        downloadProgress: 0,
-      ),
-
-      // Priority 2: High Quality, Balanced
-      OfflineModel(
-        id: 'medgemma-4b-it-q4',
-        name: 'MedGemma 4B Instruct',
-        author: 'Google',
-        size: 2490000000, // 2.49 GB
-        downloadUrl:
-            'https://huggingface.co/Fadhili254/medgemma-4b-it-q4_k_m.gguf/resolve/main/medgemma-4b-it-q4_k_m.gguf?download=true',
-        filename: 'medgemma-4b-it-q4_k_m.gguf',
-        quantization: 'Q4_K',
-        description:
-            'High-quality responses for question answering, summarization, and reasoning. Good balance of size and performance.',
-        tags: ['medical', 'qa', 'summarization', 'high-quality'],
-        contextSize: 8192,
-        isDownloaded: false,
-        downloadProgress: 0,
-      ),
-
-      // Priority 3: Lightweight, Fast
-      OfflineModel(
-        id: 'qwen2.5-1.5b-q8',
-        name: 'Qwen2.5-1.5B Instruct',
-        author: 'Alibaba',
-        size: 1890000000, // 1.89 GB
-        downloadUrl:
-            'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q8_0.gguf',
-        filename: 'qwen2.5-1.5b-instruct-q8_0.gguf',
-        quantization: 'Q8_0',
-        description:
-            'Fast inference, multilingual, good for instructions and roleplay. Works well on low-RAM devices.',
-        tags: ['lightweight', 'fast', 'multilingual', 'low-ram'],
-        contextSize: 32768,
-        isDownloaded: false,
-        downloadProgress: 0,
-      ),
-
-      // Priority 4: Balanced Size
-      OfflineModel(
-        id: 'llama-3.2-3b-q6',
-        name: 'Llama 3.2 3B Instruct',
-        author: 'Meta',
-        size: 2640000000, // 2.64 GB
-        downloadUrl:
-            'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q6_K.gguf',
-        filename: 'Llama-3.2-3B-Instruct-Q6_K.gguf',
-        quantization: 'Q6_K',
-        description:
-            'Strong instruction following, summarization, and rewriting capabilities. Good for patient notes and reports.',
-        tags: ['medical', 'instructions', 'summarization', 'reports'],
-        contextSize: 8192,
-        isDownloaded: false,
-        downloadProgress: 0,
-      ),
-
-      // Priority 5: Testing Model (Smallest)
-      OfflineModel(
-        id: 'smollm2-1.7b-q8',
-        name: 'SmolLM2-1.7B Instruct',
-        author: 'HuggingFace',
-        size: 1820000000, // 1.82 GB
-        downloadUrl:
-            'https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q8_0.gguf',
-        filename: 'SmolLM2-1.7B-Instruct-Q8_0.gguf',
-        quantization: 'Q8_0',
-        description:
-            'Smallest model, good for testing and low-resource devices. General purpose assistant.',
-        tags: ['testing', 'lightweight', 'general'],
-        contextSize: 2048,
         isDownloaded: false,
         downloadProgress: 0,
       ),
@@ -119,22 +119,22 @@ class DefaultOfflineModels {
     final models = getMedicalModels();
 
     if (ramMB < 4096) {
-      // < 4GB RAM: Use smallest model
-      return models.firstWhere((m) => m.id == 'smollm2-1.7b-q8');
+      // < 4GB RAM: Use ultra-compact model
+      return models.firstWhere((m) => m.id == 'smollm2-360m-q4');
     } else if (ramMB < 6144) {
-      // 4-6GB RAM: Use lightweight model
-      return models.firstWhere((m) => m.id == 'qwen2.5-1.5b-q8');
+      // 4-6GB RAM: Use Qwen 0.5B
+      return models.firstWhere((m) => m.id == 'qwen2.5-0.5b-q4');
     } else if (ramMB < 8192) {
-      // 6-8GB RAM: Use balanced model
-      return models.firstWhere((m) => m.id == 'phi-3.5-mini-q4');
+      // 6-8GB RAM: Use Llama 3.2 1B
+      return models.firstWhere((m) => m.id == 'llama-3.2-1b-q4');
     } else {
-      // 8GB+ RAM: Use highest quality
-      return models.firstWhere((m) => m.id == 'medgemma-4b-it-q4');
+      // 8GB+ RAM: Use Phi-3.5 Mini
+      return models.firstWhere((m) => m.id == 'phi-3.5-mini-q4');
     }
   }
 
   /// Get the recommended model for medical CHW use (default)
   static OfflineModel getDefaultMedicalModel() {
-    return getMedicalModels().firstWhere((m) => m.id == 'phi-3.5-mini-q4');
+    return getMedicalModels().firstWhere((m) => m.id == 'qwen2.5-0.5b-q4');
   }
 }
