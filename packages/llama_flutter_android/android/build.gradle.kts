@@ -56,7 +56,7 @@ android {
         minSdk = 26  // Android 8.0 (for SharedMemory support)
         
         ndk {
-            abiFilters.addAll(listOf("arm64-v8a"))  // Only ARM64
+            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
         }
         
         externalNativeBuild {

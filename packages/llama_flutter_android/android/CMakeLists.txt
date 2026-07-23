@@ -17,8 +17,13 @@ if(ANDROID_ABI STREQUAL "arm64-v8a")
 endif()
 
 # llama.cpp options
-set(GGML_CPU_AARCH64 ON CACHE BOOL "Enable ARM64 support")
-set(GGML_DOTPROD ON CACHE BOOL "Enable ARM NEON dot product")
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(GGML_CPU_AARCH64 ON CACHE BOOL "Enable ARM64 support")
+    set(GGML_DOTPROD ON CACHE BOOL "Enable ARM NEON dot product")
+else()
+    set(GGML_CPU_AARCH64 OFF CACHE BOOL "Enable ARM64 support")
+    set(GGML_DOTPROD OFF CACHE BOOL "Enable ARM NEON dot product")
+endif()
 set(GGML_STATIC OFF CACHE BOOL "Build as shared library")
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries")
 

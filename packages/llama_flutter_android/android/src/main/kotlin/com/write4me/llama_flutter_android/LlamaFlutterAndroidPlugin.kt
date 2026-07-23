@@ -20,6 +20,10 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
         private var isNativeLibraryLoaded = false
         init {
             try {
+                try { System.loadLibrary("ggml-base") } catch (_: Throwable) {}
+                try { System.loadLibrary("ggml-cpu") } catch (_: Throwable) {}
+                try { System.loadLibrary("ggml") } catch (_: Throwable) {}
+                try { System.loadLibrary("llama") } catch (_: Throwable) {}
                 System.loadLibrary("llama_jni")
                 isNativeLibraryLoaded = true
             } catch (e: Throwable) {
