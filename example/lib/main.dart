@@ -432,7 +432,7 @@ class _VoiceTabState extends State<VoiceTab> {
         systemPrompt: "You are a helpful offline voice assistant. Keep answers brief.",
       );
       String fullReply = "";
-      await for (final chunk in session.sendMessageStream(prompt)) {
+      await for (final chunk in session.streamChat(prompt)) {
         fullReply += chunk;
         setState(() {
           _aiResponse = fullReply;

@@ -19,7 +19,7 @@ class DefaultOfflineModels {
         description:
             'Ultra-lightweight model (~398MB). Fast inference, low RAM usage, ideal for mobile devices.',
         tags: ['lightweight', 'fast', 'mobile', 'recommended'],
-        contextSize: 4096,
+        contextSize: 2048,
         isDownloaded: false,
         downloadProgress: 0,
       ),

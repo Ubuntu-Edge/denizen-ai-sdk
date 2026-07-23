@@ -73,7 +73,11 @@ class OfflineAIService {
       if (contextParams is OfflineContextParams) {
         params = contextParams;
       } else {
-        params = const OfflineContextParams();
+        // Use model's context size, capped at 2048 for mobile safety
+        final safeCtx = model.contextSize > 0 && model.contextSize <= 2048 
+            ? model.contextSize 
+            : 2048;
+        params = OfflineContextParams(nCtx: safeCtx);
       }
       
       // Create new controller

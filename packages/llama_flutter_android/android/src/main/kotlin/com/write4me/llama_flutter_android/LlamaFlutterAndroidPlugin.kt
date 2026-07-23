@@ -53,9 +53,13 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
         }
         scope.launch {
             try {
-                // Start foreground service for long-running task
-                val intent = Intent(context, InferenceService::class.java)
-                ContextCompat.startForegroundService(context, intent)
+                // Start foreground service for long-running task (best-effort)
+                try {
+                    val intent = Intent(context, InferenceService::class.java)
+                    ContextCompat.startForegroundService(context, intent)
+                } catch (e: Exception) {
+                    android.util.Log.w("LlamaPlugin", "Could not start foreground service (non-fatal): ${e.message}")
+                }
 
                 // Load model with progress callback
                 nativeLoadModel(
