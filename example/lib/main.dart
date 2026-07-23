@@ -377,6 +377,7 @@ class _RagTabState extends State<RagTab> {
 }
 
 // ============================================================================
+// ============================================================================
 // TAB 4: VOICE
 // ============================================================================
 class VoiceTab extends StatefulWidget {
@@ -389,9 +390,10 @@ class VoiceTab extends StatefulWidget {
 class _VoiceTabState extends State<VoiceTab> {
   final DenizenAI _denizen = DenizenAI();
   late DenizenVoiceSession _voiceSession;
-  bool _isRecording = false;
-  bool _isProcessing = false;
-  String _transcription = "";
+  bool _isListening = false;
+  bool _isSpeaking = false;
+  String _recognizedText = "";
+  String _aiResponse = "";
 
   @override
   void initState() {
@@ -399,84 +401,146 @@ class _VoiceTabState extends State<VoiceTab> {
     _voiceSession = _denizen.createVoiceSession();
   }
 
-  Future<void> _toggleRecording() async {
-    if (_isRecording) {
-      // Stop and transcribe
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      await _voiceSession.stopListening();
       setState(() {
-        _isRecording = false;
-        _isProcessing = true;
+        _isListening = false;
       });
-
-      try {
-        final result = await _voiceSession.stopAndTranscribe();
-        setState(() {
-          _transcription = result ?? "No speech detected.";
-        });
-      } catch (e) {
-        setState(() {
-          _transcription = "Error: $e";
-        });
-      } finally {
-        setState(() {
-          _isProcessing = false;
-        });
+      if (_recognizedText.isNotEmpty && _denizen.isModelLoaded) {
+        _processWithLLM(_recognizedText);
       }
     } else {
-      // Start recording
-      try {
-        await _voiceSession.startRecording();
+      setState(() {
+        _recognizedText = "Listening...";
+        _aiResponse = "";
+        _isListening = true;
+      });
+      await _voiceSession.startListening(
+        onResult: (text) {
+          setState(() {
+            _recognizedText = text;
+          });
+        },
+      );
+    }
+  }
+
+  Future<void> _processWithLLM(String prompt) async {
+    try {
+      final session = _denizen.createSession(
+        systemPrompt: "You are a helpful offline voice assistant. Keep answers brief.",
+      );
+      String fullReply = "";
+      await for (final chunk in session.sendMessageStream(prompt)) {
+        fullReply += chunk;
         setState(() {
-          _isRecording = true;
-          _transcription = "Recording...";
-        });
-      } catch (e) {
-        setState(() {
-          _transcription = "Error starting record: $e";
+          _aiResponse = fullReply;
         });
       }
+      if (fullReply.isNotEmpty) {
+        _speakResponse(fullReply);
+      }
+    } catch (e) {
+      setState(() {
+        _aiResponse = "Error: $e";
+      });
     }
+  }
+
+  Future<void> _speakResponse(String text) async {
+    setState(() {
+      _isSpeaking = true;
+    });
+    await _voiceSession.speak(text);
+    setState(() {
+      _isSpeaking = false;
+    });
+  }
+
+  Future<void> _stopSpeaking() async {
+    await _voiceSession.stopSpeaking();
+    setState(() {
+      _isSpeaking = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(16.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _isRecording ? Icons.mic : Icons.mic_none,
-            size: 80,
-            color: _isRecording ? Colors.red : Colors.grey,
-          ),
-          const SizedBox(height: 30),
-          ElevatedButton(
-            onPressed: _isProcessing ? null : _toggleRecording,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _isRecording ? Colors.red : Colors.deepPurple,
-              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _isListening ? Icons.mic : Icons.mic_none,
+              size: 80,
+              color: _isListening ? Colors.red : Colors.deepPurple,
             ),
-            child: Text(
-              _isRecording ? "Stop & Transcribe" : "Start Recording",
-              style: const TextStyle(fontSize: 18),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: _toggleListening,
+              icon: Icon(_isListening ? Icons.stop : Icons.mic),
+              label: Text(
+                _isListening ? "Stop Listening" : "Start Listening",
+                style: const TextStyle(fontSize: 18),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isListening ? Colors.red : Colors.deepPurple,
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              ),
             ),
-          ),
-          const SizedBox(height: 40),
-          if (_isProcessing) const CircularProgressIndicator(),
-          if (!_isProcessing && _transcription.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
+            const SizedBox(height: 30),
+            if (_recognizedText.isNotEmpty)
+              Card(
                 color: Colors.grey[900],
-                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "🗣️ You said:",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurpleAccent),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(_recognizedText, style: const TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                ),
               ),
-              child: Text(
-                _transcription,
-                style: const TextStyle(fontSize: 16),
-                textAlign: TextAlign.center,
+            const SizedBox(height: 20),
+            if (_aiResponse.isNotEmpty)
+              Card(
+                color: Colors.grey[850],
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            "🤖 AI Assistant:",
+                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent),
+                          ),
+                          IconButton(
+                            icon: Icon(_isSpeaking ? Icons.volume_off : Icons.volume_up),
+                            onPressed: _isSpeaking ? _stopSpeaking : () => _speakResponse(_aiResponse),
+                            color: Colors.greenAccent,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(_aiResponse, style: const TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -4,24 +4,49 @@ import 'package:path/path.dart' as p;
 import 'offline_audio_service.dart';
 import 'dart:io';
 
-/// A session specifically designed for voice interactions.
+/// A session specifically designed for voice interactions (Speech-to-Text & Text-to-Speech).
 class DenizenVoiceSession {
   final AudioRecorder _audioRecorder = AudioRecorder();
   final String _systemPrompt;
   bool _isRecording = false;
 
   DenizenVoiceSession({String? systemPrompt})
-      : _systemPrompt = systemPrompt ?? 'You are a helpful voice assistant.';
+      : _systemPrompt = systemPrompt ?? 'You are a helpful voice assistant.' {
+    OfflineAudioService.instance.initTts();
+  }
 
   bool get isRecording => _isRecording;
 
-  /// Start recording audio from the microphone
+  /// Speak text out loud using system Text-to-Speech (flutter_tts)
+  Future<void> speak(String text) async {
+    await OfflineAudioService.instance.speak(text);
+  }
+
+  /// Stop current Text-to-Speech playback
+  Future<void> stopSpeaking() async {
+    await OfflineAudioService.instance.stopSpeaking();
+  }
+
+  /// Start live system speech recognition (Speech-to-Text)
+  Future<void> startListening({
+    required Function(String text) onResult,
+  }) async {
+    _isRecording = true;
+    await OfflineAudioService.instance.startListening(onResult: onResult);
+  }
+
+  /// Stop live system speech recognition
+  Future<void> stopListening() async {
+    _isRecording = false;
+    await OfflineAudioService.instance.stopListening();
+  }
+
+  /// Start recording audio from the microphone to WAV
   Future<void> startRecording() async {
     if (await _audioRecorder.hasPermission()) {
       final dir = await getTemporaryDirectory();
       final path = p.join(dir.path, 'denizen_voice_temp.wav');
       
-      // Whisper requires 16kHz, mono, 16-bit PCM WAV
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.wav,
@@ -37,10 +62,7 @@ class DenizenVoiceSession {
     }
   }
 
-  /// Stop recording and transcribe the audio
-  /// 
-  /// Returns the transcribed text. In a full implementation, this text would then
-  /// be piped directly into `DenizenSession` to get the LLM response.
+  /// Stop recording and transcribe the audio (using Whisper if loaded)
   Future<String> stopAndTranscribe() async {
     if (!_isRecording) return "";
     
