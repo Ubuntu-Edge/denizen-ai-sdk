@@ -5,6 +5,18 @@
 
 ---
 
+## 📊 Feature Matrix (v1.0)
+
+| Feature | Status | Details |
+|---|---|---|
+| 🧠 **Local LLM Engine** | 🟢 **Production Ready** | Accelerated GGUF inference (`Llama 3`, `Phi-3.5`, `Qwen 2.5`, `Mistral`) via native C++ engine. |
+| 🔍 **Vector RAG Engine** | 🟢 **Production Ready** | TF-Lite embeddings + `sqlite-vec` local vector database for document Q&A. |
+| 🛠️ **Structured Tool Calling** | 🟢 **Production Ready** | Parallel execution loops with dynamic GBNF grammar constraints guaranteeing valid JSON outputs. |
+| 🎙️ **Conversational Voice** | 🟢 **Production Ready** | Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) sessions. |
+| 👁️ **Multimodal Vision** | 🟡 **Early Access / API Stub** | `DenizenVisionSession` API & showcase UI ready; full C++ `clip.h` projector integration in v2. |
+
+---
+
 ## 🏗️ Denizen AI System Architecture
 
 ```
@@ -20,7 +32,7 @@
 │ ┌──────────────────┐  ┌───────────────────┐  ┌───────────────────────┐ │
 │ │DenizenVoiceSess. │  │DenizenVisionSess. │  │  VectorStorageService │ │
 │ │  • Offline STT   │  │  • Image Analysis │  │  • TFLite Embeddings  │ │
-│ │  • Offline TTS   │  │  • Visual Projector│  │  • sqlite-vec DB      │ │
+│ │  • Offline TTS   │  │  • Early Access   │  │  • sqlite-vec DB      │ │
 │ └────────┬─────────┘  └─────────┬─────────┘  └───────────┬───────────┘ │
 └──────────┼──────────────────────┼────────────────────────┼─────────────┘
            │                      │                        │
@@ -30,17 +42,6 @@
 │    • libllama.so (Android ARM64 NEON)    • vec0.dll (Windows x64)     │
 └────────────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 🌟 Key Features
-
-- **⚡ 100% Offline & Private**: Complete on-device processing. No telemetry, no cloud API dependencies, and zero data leaving the user's device.
-- **🧠 Local LLM Execution**: Accelerated GGUF inference powered by pre-compiled C++ backends (`Llama 3`, `Phi-3.5`, `Qwen 2.5`, `Mistral`).
-- **🔍 Vector RAG (Retrieval-Augmented Generation)**: On-device TF-Lite embedding extraction combined with local vector storage for instant document Q&A.
-- **🛠️ Parallel Tool Calling & GBNF Grammar Constraints**: Multi-turn tool execution with dynamic GBNF grammar compiling to guarantee strict JSON output schemas.
-- **🎙️ Conversational Voice Sessions**: Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) integration.
-- **👁️ Multimodal Vision Processing**: On-device image analysis and visual projector simulation.
 
 ---
 
@@ -181,7 +182,7 @@ offline_ai_architecture/
 │       ├── orchestrator/              ← Denizen Orchestrator
 │       ├── rag/                       ← TF-Lite Embeddings & Vector Storage
 │       ├── tools/                     ← Parallel Tool Calling & Sessions
-│       └── vision/                    ← Multimodal Vision Analysis
+│       └── vision/                    ← Multimodal Vision Analysis (Early Access)
 ├── packages/
 │   └── llama_flutter_android/         ← Native Android C++ / JNI Plugin
 ├── tool/
