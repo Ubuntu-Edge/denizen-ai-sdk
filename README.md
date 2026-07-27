@@ -1,19 +1,19 @@
 # Denizen AI Engine 🚀
 
-> **Privacy-first, On-device Multimodal AI Engine & Orchestrator for Flutter**  
+> **Privacy-first, On-Device Multimodal AI Engine & Orchestrator for Flutter (v1.0 Developer Preview)**  
 > Run local LLMs, Vector RAG search, Structured Tool Calling, Conversational Voice, and Vision analysis 100% offline with zero cloud API fees.
 
 ---
 
-## 📊 Feature Matrix (v1.0)
+## 📊 Feature Matrix & Readiness Status
 
 | Feature | Status | Details |
 |---|---|---|
-| 🧠 **Local LLM Engine** | 🟢 **Production Ready** | Accelerated GGUF inference (`Llama 3`, `Phi-3.5`, `Qwen 2.5`, `Mistral`) via native C++ engine. |
-| 🔍 **Vector RAG Engine** | 🟢 **Production Ready** | TF-Lite embeddings + `sqlite-vec` local vector database for document Q&A. |
-| 🛠️ **Structured Tool Calling** | 🟢 **Production Ready** | Parallel execution loops with dynamic GBNF grammar constraints guaranteeing valid JSON outputs. |
-| 🎙️ **Conversational Voice** | 🟢 **Production Ready** | Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) sessions. |
-| 👁️ **Multimodal Vision** | 🟡 **Early Access / API Stub** | `DenizenVisionSession` API & showcase UI ready; full C++ `clip.h` projector integration in v2. |
+| 🧠 **Local LLM Engine** | 🟢 **Fully Functional** | Accelerated GGUF inference (`Llama 3.2`, `Phi-3.5`, `Qwen 2.5`, `Mistral`) via pre-compiled native C++ engine. |
+| 🔍 **Vector RAG Engine** | 🟢 **Fully Functional** | TF-Lite embedding extraction + `sqlite-vec` local vector database for document Q&A. |
+| 🛠️ **Structured Tool Calling** | 🟢 **Fully Functional** | Parallel execution loops with dynamic GBNF grammar constraints guaranteeing JSON outputs. |
+| 🎙️ **Conversational Voice** | 🟢 **Fully Functional** | Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) session handling. |
+| 👁️ **Multimodal Vision** | 🟡 **Early Access / API Stub** | `DenizenVisionSession` Dart API class & showcase UI ready; full C++ `clip.h` projector integration in v2. |
 
 ---
 
@@ -45,9 +45,9 @@
 
 ---
 
-## 📦 Installation
+## 📦 Installation for App Developers
 
-Add `denizen_ai` to your Flutter project's `pubspec.yaml`:
+Downstream developers should depend on the **Pre-Compiled SDK Repository** (`denizen-ai-sdk`), which includes pre-compiled `.so` binaries and requires zero native C++ compiler tools:
 
 ```yaml
 dependencies:
@@ -69,26 +69,33 @@ flutter pub get
 
 ## 🚀 Quickstart
 
-### 1. Initialize Denizen Engine & Generate Text Stream
+### 1. Initialize Engine & Stream Local LLM Responses
 
 ```dart
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:denizen_ai/denizen_ai.dart';
+import 'package:path/path.dart' as p;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Resolve portable app documents directory (Android Scoped Storage compatible)
+  final docsDir = await getApplicationDocumentsDirectory();
+  final modelPath = p.join(docsDir.path, 'models', 'qwen2.5-1.5b-instruct-q4_k_m.gguf');
+
   final engine = DenizenEngine();
   await engine.initialize(
-    modelPath: '/path/to/local/model.gguf',
+    modelPath: modelPath,
     contextSize: 2048,
     gpuLayers: 0,
   );
 
-  final stream = engine.generateStream(
+  final tokenStream = engine.generateStream(
     prompt: 'Explain quantum computing in 2 short sentences.',
   );
 
-  await for (final token in stream) {
+  await for (final token in tokenStream) {
     print(token);
   }
 }
@@ -171,8 +178,8 @@ await voiceSession.startListening(
 ## 📂 Repository Structure
 
 ```
-offline_ai_architecture/
-├── lib/                               ← Core Denizen AI SDK
+offline_ai_architecture/               ← Main Development Source Repository
+├── lib/                               ← Core Denizen AI SDK Source
 │   ├── denizen_ai.dart                ← Main entry export
 │   └── src/
 │       ├── audio/                     ← Offline STT / TTS Voice Sessions
@@ -189,17 +196,6 @@ offline_ai_architecture/
 │   └── release.dart                   ← Automated Closed-Source Packager
 └── example/                           ← Interactive Showcase Dashboard
 ```
-
----
-
-## 💻 Platform Support & Native Binaries
-
-| Platform | Status | Architecture | Binary Module |
-|---|---|---|---|
-| **Android** | ✅ Production Ready | `ARM64-v8a` | Pre-compiled `libllama.so` |
-| **Windows** | ✅ Production Ready | `x64` | `example.exe` & `vec0.dll` |
-| **iOS** | 🚧 Roadmap | `Metal` | Metal Shaders |
-| **macOS** | 🚧 Roadmap | `Apple Silicon` | Metal Shaders |
 
 ---
 
