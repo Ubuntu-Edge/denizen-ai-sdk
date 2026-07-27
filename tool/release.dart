@@ -72,11 +72,20 @@ void main() async {
   final windowsDll = p.join(
       root, 'example', 'build', 'windows', 'x64', 'runner', 'Release', 'llama.dll');
 
-  // 2. Clear stale binary outputs
+  // 2. Clear stale binary outputs & kill lingering MSBuild process locks
   print('🧹 Clearing stale build outputs...');
+  if (Platform.isWindows) {
+    await Process.run('cmd.exe', ['/c', 'taskkill /F /IM MSBuild.exe /T 2>nul']);
+    await Process.run('cmd.exe', ['/c', 'taskkill /F /IM cl.exe /T 2>nul']);
+  }
+
   final staleAndroid = findAndroidSo(p.join(root, 'example'));
-  if (staleAndroid != null) File(staleAndroid).deleteSync();
-  if (File(windowsDll).existsSync()) File(windowsDll).deleteSync();
+  if (staleAndroid != null) {
+    try { File(staleAndroid).deleteSync(); } catch (_) {}
+  }
+  if (File(windowsDll).existsSync()) {
+    try { File(windowsDll).deleteSync(); } catch (_) {}
+  }
 
   // 3. Build Android release binaries
   print('📱 Building Android release binaries...');
