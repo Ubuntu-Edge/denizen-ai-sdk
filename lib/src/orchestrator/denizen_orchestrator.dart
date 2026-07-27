@@ -41,6 +41,16 @@ class VectorSearchCommand extends OrchestratorCommand {
   VectorSearchCommand(this.id, this.queryEmbedding, {this.limit = 3});
 }
 
+class IngestChunkCommand extends OrchestratorCommand {
+  final int id;
+  final int docId;
+  final String textContent;
+  final int chunkIndex;
+  final List<double> embedding;
+
+  IngestChunkCommand(this.id, this.docId, this.textContent, this.chunkIndex, this.embedding);
+}
+
 abstract class OrchestratorEvent {}
 
 class IsolateReadyEvent extends OrchestratorEvent {
@@ -73,6 +83,14 @@ class VectorSearchResponseEvent extends OrchestratorEvent {
   VectorSearchResponseEvent(this.id, this.results, {this.error});
 }
 
+class IngestChunkResponseEvent extends OrchestratorEvent {
+  final int id;
+  final bool success;
+  final String? error;
+
+  IngestChunkResponseEvent(this.id, this.success, {this.error});
+}
+
 /// The DenizenOrchestrator manages a persistent background isolate
 /// for heavy AI operations (LLM generation and Vector search).
 class DenizenOrchestrator {
@@ -87,6 +105,7 @@ class DenizenOrchestrator {
   int _requestIdCounter = 0;
   final Map<int, Completer<String>> _chatCompleters = {};
   final Map<int, Completer<List<Map<String, dynamic>>>> _searchCompleters = {};
+  final Map<int, Completer<bool>> _ingestCompleters = {};
   final Map<int, StreamController<String>> _streamControllers = {};
 
   bool get isReady => _commandPort != null;
@@ -134,6 +153,15 @@ class DenizenOrchestrator {
             completer.completeError(Exception(message.error));
           } else {
             completer.complete(message.results);
+          }
+        }
+      } else if (message is IngestChunkResponseEvent) {
+        final completer = _ingestCompleters.remove(message.id);
+        if (completer != null) {
+          if (message.error != null) {
+            completer.completeError(Exception(message.error));
+          } else {
+            completer.complete(message.success);
           }
         }
       } else if (message is ChatStreamEvent) {
@@ -211,6 +239,13 @@ class DenizenOrchestrator {
         } catch (e) {
           sendPort.send(VectorSearchResponseEvent(message.id, [], error: e.toString()));
         }
+      } else if (message is IngestChunkCommand) {
+        try {
+          vectorStorage.insertChunk(message.docId, message.textContent, message.chunkIndex, message.embedding);
+          sendPort.send(IngestChunkResponseEvent(message.id, true));
+        } catch (e) {
+          sendPort.send(IngestChunkResponseEvent(message.id, false, error: e.toString()));
+        }
       }
     });
   }
@@ -248,6 +283,18 @@ class DenizenOrchestrator {
     _searchCompleters[id] = completer;
 
     _commandPort!.send(VectorSearchCommand(id, queryEmbedding, limit: limit));
+    return completer.future;
+  }
+
+  /// Offloads a vector chunk insertion to the background isolate.
+  Future<bool> ingestChunk(int docId, String textContent, int chunkIndex, List<double> embedding) {
+    if (_commandPort == null) throw Exception('Orchestrator not initialized');
+
+    final id = _requestIdCounter++;
+    final completer = Completer<bool>();
+    _ingestCompleters[id] = completer;
+
+    _commandPort!.send(IngestChunkCommand(id, docId, textContent, chunkIndex, embedding));
     return completer.future;
   }
 }
