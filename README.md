@@ -1,187 +1,219 @@
-# Offline AI Architecture
+# Denizen AI Engine 🚀
 
-A self-contained, on-device LLM inference architecture for Flutter Android apps. Built for Community Health Workers (CHWs) in low-connectivity environments — but designed to be reused by any developer who needs offline AI capabilities.
+> **Privacy-first, On-device Multimodal AI Engine & Orchestrator for Flutter**  
+> Run local LLMs, Vector RAG search, Structured Tool Calling, Conversational Voice, and Vision analysis 100% offline with zero cloud API fees.
 
-## Architecture Overview
+---
+
+## 🏗️ Denizen AI System Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      UI Layer (Screens)                      │
-│  ┌─────────────────┐ ┌─────────────┐ ┌───────────────────┐  │
-│  │ Download Screen  │ │ Model Picker│ │ Inference Settings│  │
-│  └────────┬────────┘ └──────┬──────┘ └────────┬──────────┘  │
-│           │                 │                  │             │
-├───────────┼─────────────────┼──────────────────┼─────────────┤
-│           ▼                 ▼                  ▼             │
-│                 State Management (Providers)                  │
-│  ┌──────────────────────┐  ┌────────────────────────────┐   │
-│  │ OfflineModelProvider │  │      ChatProvider           │   │
-│  │  • Model lifecycle   │  │  • Online ↔ Offline routing │   │
-│  │  • Download status   │  │  • Smart fallback           │   │
-│  │  • Auto-detection    │  │  • Chat session management  │   │
-│  └──────────┬───────────┘  └──────────┬─────────────────┘   │
-│             │                         │                      │
-├─────────────┼─────────────────────────┼──────────────────────┤
-│             ▼                         ▼                      │
-│                    Core Services                             │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌───────────┐  │
-│  │ OfflineAIService │  │ ModelDownload     │  │Connectivity│ │
-│  │  • llama.cpp      │  │  Service          │  │  Service   │ │
-│  │  • GGUF loading   │  │  • HuggingFace DL │  │  • Real    │ │
-│  │  • Streaming      │  │  • Resume support │  │    internet│ │
-│  │  • Token gen      │  │  • Gzip extract   │  │    check   │ │
-│  └──────────────────┘  └──────────────────┘  └───────────┘  │
-│                                                              │
-│  ┌──────────────────┐  ┌──────────────────┐                  │
-│  │   AIService      │  │  SymptomParser   │                  │
-│  │  • Online API    │  │  • NLP extraction │                  │
-│  │  • Safety filter │  │  • Emergency      │                  │
-│  │  • Post-process  │  │    detection      │                  │
-│  └──────────────────┘  └──────────────────┘                  │
-│                                                              │
-├──────────────────────────────────────────────────────────────┤
-│                    Data Models                               │
-│  ┌────────────────┐ ┌──────────────────┐ ┌───────────────┐  │
-│  │ OfflineModel   │ │ ContextParams    │ │ CompletionPrms│  │
-│  │ DefaultModels  │ │ LoadingProgress  │ │ ChatMessage   │  │
-│  └────────────────┘ └──────────────────┘ └───────────────┘  │
-└──────────────────────────────────────────────────────────────┘
-         │
-         ▼
-  ┌──────────────────┐
-  │ llama_flutter_    │
-  │ android (plugin)  │
-  │  • llama.cpp JNI  │
-  │  • ARM64 NEON     │
-  └──────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Denizen Orchestrator                            │
+│ ┌──────────────────┐  ┌───────────────────┐  ┌───────────────────────┐ │
+│ │  DenizenEngine   │  │ DocumentIngestion │  │   DenizenToolSession  │ │
+│ │  (Local LLM GGUF)│  │   Service (RAG)   │  │ (Tool Calling & GBNF) │ │
+│ └────────┬─────────┘  └─────────┬─────────┘  └───────────┬───────────┘ │
+├──────────┼──────────────────────┼────────────────────────┼─────────────┤
+│          ▼                      ▼                        ▼             │
+│                 Multimodal & Native Hardware Layer                     │
+│ ┌──────────────────┐  ┌───────────────────┐  ┌───────────────────────┐ │
+│ │DenizenVoiceSess. │  │DenizenVisionSess. │  │  VectorStorageService │ │
+│ │  • Offline STT   │  │  • Image Analysis │  │  • TFLite Embeddings  │ │
+│ │  • Offline TTS   │  │  • Visual Projector│  │  • sqlite-vec DB      │ │
+│ └────────┬─────────┘  └─────────┬─────────┘  └───────────┬───────────┘ │
+└──────────┼──────────────────────┼────────────────────────┼─────────────┘
+           │                      │                        │
+           ▼                      ▼                        ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    Pre-Compiled Native C++ Binaries                    │
+│    • libllama.so (Android ARM64 NEON)    • vec0.dll (Windows x64)     │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+---
 
-### 1. Add Dependencies
+## 🌟 Key Features
 
-Add these to your `pubspec.yaml`:
+- **⚡ 100% Offline & Private**: Complete on-device processing. No telemetry, no cloud API dependencies, and zero data leaving the user's device.
+- **🧠 Local LLM Execution**: Accelerated GGUF inference powered by pre-compiled C++ backends (`Llama 3`, `Phi-3.5`, `Qwen 2.5`, `Mistral`).
+- **🔍 Vector RAG (Retrieval-Augmented Generation)**: On-device TF-Lite embedding extraction combined with local vector storage for instant document Q&A.
+- **🛠️ Parallel Tool Calling & GBNF Grammar Constraints**: Multi-turn tool execution with dynamic GBNF grammar compiling to guarantee strict JSON output schemas.
+- **🎙️ Conversational Voice Sessions**: Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) integration.
+- **👁️ Multimodal Vision Processing**: On-device image analysis and visual projector simulation.
+
+---
+
+## 📦 Installation
+
+Add `denizen_ai` to your Flutter project's `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  # Core: On-device LLM inference
-  llama_flutter_android: ^0.1.1
+  flutter:
+    sdk: flutter
 
-  # Network & Downloads
-  http: ^1.1.0
-  connectivity_plus: ^6.1.0
-
-  # State Management
-  provider: ^6.1.1
-  shared_preferences: ^2.2.3
-
-  # Storage
-  path_provider: ^2.1.1
-
-  # File Picker (for custom models)
-  file_picker: ^10.3.7
-
-  # Permissions
-  permission_handler: ^12.0.1
-
-  # UUID (for chat sessions)
-  uuid: ^4.2.1
-
-  # Environment variables (for API token)
-  flutter_dotenv: ^6.0.0
+  denizen_ai:
+    git:
+      url: https://github.com/Ubuntu-Edge/denizen-ai-sdk.git
+      ref: main
 ```
 
-### 2. Initialize Services
+Run in your terminal:
+```bash
+flutter pub get
+```
+
+---
+
+## 🚀 Quickstart
+
+### 1. Initialize Denizen Engine & Generate Text Stream
 
 ```dart
+import 'package:denizen_ai/denizen_ai.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize services
-  await AIService.instance.initialize();
-  await OfflineAIService.instance.initialize();
-  await ConnectivityService.instance.initialize();
-
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => OfflineModelProvider()..initialize()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
-        ChangeNotifierProvider.value(value: ConnectivityService.instance),
-      ],
-      child: MyApp(),
-    ),
+  final engine = DenizenEngine();
+  await engine.initialize(
+    modelPath: '/path/to/local/model.gguf',
+    contextSize: 2048,
+    gpuLayers: 0,
   );
+
+  final stream = engine.generateStream(
+    prompt: 'Explain quantum computing in 2 short sentences.',
+  );
+
+  await for (final token in stream) {
+    print(token);
+  }
 }
 ```
 
-### 3. Use in Your App
+---
+
+### 2. Offline Vector RAG (Document Ingestion & Query)
 
 ```dart
-// Send a message (auto-routes between online/offline)
-final chatProvider = context.read<ChatProvider>();
-await chatProvider.sendMessage('Patient has fever for 3 days', patientId);
+final ragService = DocumentIngestionService(
+  embeddingProvider: TFLiteEmbeddingProvider(),
+);
 
-// Or use OfflineAIService directly
-final response = await OfflineAIService.instance.generateResponse(
-  prompt: 'What should I check for a child with fever?',
-  systemPrompt: 'You are a medical assistant.',
+// Ingest local document into vector store
+await ragService.ingestDocument(
+  filePath: '/path/to/handbook.pdf',
+);
+
+// Query vector database
+final matches = await ragService.queryVectorStore(
+  query: 'What is our emergency response protocol?',
+  topK: 3,
+);
+
+for (final match in matches) {
+  print('Match snippet: ${match.content} (Score: ${match.score})');
+}
+```
+
+---
+
+### 3. Parallel Tool Calling with GBNF Constraints
+
+```dart
+final registry = DenizenToolRegistry();
+
+// Register a custom function with JSON Schema validation
+registry.registerTool(
+  name: 'get_weather',
+  description: 'Fetches current weather for a city',
+  parameters: {
+    'type': 'object',
+    'properties': {
+      'city': {'type': 'string'},
+    },
+    'required': ['city'],
+  },
+  handler: (args) async => 'Weather in ${args['city']} is 24°C, Sunny',
+);
+
+final toolSession = DenizenToolSession(
+  engine: engine,
+  registry: registry,
+);
+
+// Engine executes function loop & returns final synthesized response
+final result = await toolSession.chat('What is the weather in Nairobi?');
+print(result);
+```
+
+---
+
+### 4. Conversational Voice Session
+
+```dart
+final voiceSession = DenizenVoiceSession(
+  engine: engine,
+  sttService: OfflineAudioService(),
+);
+
+await voiceSession.startListening(
+  onSpeechRecognized: (userText) => print('User said: $userText'),
+  onResponseGenerated: (aiReply) => print('AI replied: $aiReply'),
 );
 ```
 
-## Folder Structure
+---
+
+## 📂 Repository Structure
 
 ```
 offline_ai_architecture/
-├── README.md                          ← You are here
-├── ARCHITECTURE.md                    ← Technical deep-dive
-├── models/                            ← Data classes
-│   ├── offline_model.dart             ← GGUF model metadata
-│   ├── offline_context_params.dart    ← llama.cpp init parameters
-│   ├── offline_completion_params.dart ← Generation parameters
-│   ├── model_loading_progress.dart    ← Loading state tracking
-│   ├── default_offline_models.dart    ← Pre-configured model registry
-│   └── chat_message.dart              ← Chat message data class
-├── services/                          ← Core business logic
-│   ├── offline_ai_service.dart        ← llama.cpp inference engine
-│   ├── model_download_service.dart    ← HuggingFace download manager
-│   ├── ai_service.dart                ← Online API + safety filters
-│   ├── connectivity_service.dart      ← Real internet verification
-│   └── symptom_parser.dart            ← Medical symptom NLP
-├── providers/                         ← State management
-│   ├── offline_model_provider.dart    ← Model lifecycle management
-│   └── chat_provider.dart             ← Online↔offline routing
-├── screens/                           ← UI components
-│   ├── offline_model_download_screen.dart  ← Download management
-│   ├── custom_model_picker_dialog.dart     ← GGUF file picker
-│   ├── inference_settings_bottom_sheet.dart ← Parameter tuning
-│   └── offline_ai_example.dart             ← Integration demo
-└── docs/                              ← Documentation & tools
-    ├── models_guide.md                ← Model selection guide
-    └── download_model_simple.ps1      ← PowerShell download helper
+├── lib/                               ← Core Denizen AI SDK
+│   ├── denizen_ai.dart                ← Main entry export
+│   └── src/
+│       ├── audio/                     ← Offline STT / TTS Voice Sessions
+│       ├── benchmark/                 ← On-device benchmark performance suite
+│       ├── engine/                    ← GGUF LLM Engine & Parameters
+│       ├── grammar/                   ← GBNF Schema Compiler
+│       ├── orchestrator/              ← Denizen Orchestrator
+│       ├── rag/                       ← TF-Lite Embeddings & Vector Storage
+│       ├── tools/                     ← Parallel Tool Calling & Sessions
+│       └── vision/                    ← Multimodal Vision Analysis
+├── packages/
+│   └── llama_flutter_android/         ← Native Android C++ / JNI Plugin
+├── tool/
+│   └── release.dart                   ← Automated Closed-Source Packager
+└── example/                           ← Interactive Showcase Dashboard
 ```
 
-## Supported Models
+---
 
-| Model | Size | Quantization | Best For |
-|-------|------|-------------|----------|
-| **Phi-3.5 Mini** ⭐ | 2.39 GB | Q4_K_M | Medical reasoning, multilingual |
-| **MedGemma 4B** | 2.49 GB | Q4_K | Medical QA, high quality |
-| **Qwen2.5-1.5B** | 1.89 GB | Q8_0 | Fast inference, low RAM |
-| **Llama 3.2 3B** | 2.64 GB | Q6_K | Instructions, reports |
-| **SmolLM2-1.7B** | 1.82 GB | Q8_0 | Testing, lightweight |
+## 💻 Platform Support & Native Binaries
 
-## Key Features
+| Platform | Status | Architecture | Binary Module |
+|---|---|---|---|
+| **Android** | ✅ Production Ready | `ARM64-v8a` | Pre-compiled `libllama.so` |
+| **Windows** | ✅ Production Ready | `x64` | `example.exe` & `vec0.dll` |
+| **iOS** | 🚧 Roadmap | `Metal` | Metal Shaders |
+| **macOS** | 🚧 Roadmap | `Apple Silicon` | Metal Shaders |
 
-- **On-device inference** — No internet required after model download
-- **Smart routing** — Auto-falls back from online to offline when internet drops
-- **Resume downloads** — Partial downloads resume automatically
-- **External storage** — Models persist across app updates (Android)
-- **Safety filters** — Built-in medical guardrails (never diagnoses, never prescribes)
-- **Streaming** — Token-by-token streaming for real-time UI updates
-- **Multi-model** — Download and switch between multiple models
-- **Custom models** — Load any GGUF file from device storage
+---
 
-## License
+## 🔒 Closed-Source Binary Packaging
 
-This architecture was extracted from the [Augment-CHWs](https://github.com/ogemboeugene/Augment-CHWs) project.
+To generate a secure distribution package with raw C++ source files stripped:
+
+```bash
+dart tool/release.dart
+```
+
+This compiles release binaries, strips all C++ source code (`.cpp`, `.h`), and generates a clean distribution package in `release_bundle/`.
+
+---
+
+## 📄 License
+
+Copyright © 2026 Denizen AI / Ubuntu Edge. All rights reserved.
