@@ -133,8 +133,12 @@ void main() async {
   
   if (windowsOk) {
     print('✅ Windows application build verified: ${windowsExe.path}');
-    for (final dll in customDlls) {
-      print('✅ Custom Windows native library found: ${dll.path}');
+    if (customDlls.isNotEmpty) {
+      for (final dll in customDlls) {
+        print('✅ Custom Windows native library found: ${dll.path}');
+      }
+    } else {
+      print('⚠️  vec0.dll not found in windows_deps/ — Windows vector search extension will be omitted from bundle.');
     }
   } else if (Platform.isWindows) {
     print('⚠️  Windows build failed or incomplete.');
@@ -263,6 +267,8 @@ android {
   print('   Windows App Build: ${windowsOk ? "✅ verified" : "⚠️  not verified (build failed)"}');
   if (customDlls.isNotEmpty) {
     print('   Windows Native Libraries: ✅ ${customDlls.map((e) => p.basename(e.path)).join(', ')} included');
+  } else {
+    print('   Windows Native Libraries (vec0.dll): ⚠️  not found in windows_deps/ (place vec0.dll in windows_deps/ if vector search is required)');
   }
   print('\nZip the release_bundle/ directory and distribute — no C++ source code exposed!');
 }
