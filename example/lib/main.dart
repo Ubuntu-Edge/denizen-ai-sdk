@@ -38,7 +38,6 @@ class MainDashboard extends StatefulWidget {
 
 class _MainDashboardState extends State<MainDashboard> {
   bool _isInitializing = true;
-  final DenizenAI _denizen = DenizenAI();
   
   @override
   void initState() {
@@ -198,7 +197,32 @@ class _ChatTabState extends State<ChatTab> {
   @override
   void initState() {
     super.initState();
-    _session = _denizen.createSession(systemPrompt: "You are a helpful assistant.");
+    _initSession();
+  }
+
+  Future<void> _initSession() async {
+    try {
+      final embeddingProvider = TFLiteEmbeddingProvider();
+      await embeddingProvider.initialize();
+
+      final storageService = VectorStorageService();
+      if (!storageService.isInitialized) {
+        await storageService.initialize();
+      }
+
+      setState(() {
+        _session = _denizen.createRagSession(
+          embeddingProvider: embeddingProvider,
+          storageService: storageService,
+          baseSystemPrompt: "You are a helpful assistant.",
+        );
+      });
+    } catch (e) {
+      debugPrint("RAG session init failed, falling back to standard session: $e");
+      setState(() {
+        _session = _denizen.createSession(systemPrompt: "You are a helpful assistant.");
+      });
+    }
   }
 
   Future<void> _sendMessage() async {
@@ -206,6 +230,12 @@ class _ChatTabState extends State<ChatTab> {
     if (!_denizen.isModelLoaded) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please load a model first in the Models tab.')),
+      );
+      return;
+    }
+    if (_session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Session is still initializing, please wait...')),
       );
       return;
     }
@@ -366,7 +396,7 @@ class _RagTabState extends State<RagTab> {
           const Divider(),
           const SizedBox(height: 20),
           const Text(
-            "To test this, go to the Chat tab and ask: 'What is the secret password?'\n(Note: In a full app, you would use DenizenRagSession for the chat.)",
+            "To test this, go to the Chat tab and ask: 'What is the secret password?'\n(Chat tab is now configured with DenizenRagSession!)",
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey),
           ),
