@@ -330,6 +330,48 @@ class _RagTabState extends State<RagTab> {
   bool _isIngesting = false;
   String _status = "RAG Database ready.";
 
+  // Tool demonstration state
+  final DenizenToolRegistry _toolRegistry = DenizenToolRegistry();
+  bool _flashlightEnabled = false;
+  int _batteryLevel = 88;
+  String _toolLog = "No tools triggered yet.";
+  bool _isToolRunning = false;
+  final TextEditingController _toolController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _initTools();
+  }
+
+  void _initTools() {
+    _toolRegistry.register(
+      BatteryTool(
+        getBatteryLevel: () => _batteryLevel,
+        logCallback: (msg) {
+          setState(() {
+            _toolLog = msg;
+          });
+        },
+      ),
+    );
+
+    _toolRegistry.register(
+      FlashlightTool(
+        setFlashlight: (enable) {
+          setState(() {
+            _flashlightEnabled = enable;
+          });
+        },
+        logCallback: (msg) {
+          setState(() {
+            _toolLog = msg;
+          });
+        },
+      ),
+    );
+  }
+
   Future<void> _ingestDummyDocument() async {
     setState(() {
       _isIngesting = true;
@@ -365,40 +407,163 @@ class _RagTabState extends State<RagTab> {
     }
   }
 
+  Future<void> _runToolRequest() async {
+    final prompt = _toolController.text.trim();
+    if (prompt.isEmpty) return;
+    final denizen = DenizenAI();
+    if (!denizen.isModelLoaded) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please load a model first in the Models tab.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isToolRunning = true;
+      _toolLog = "Sending prompt to tool session...";
+    });
+
+    try {
+      final session = denizen.createToolSession(
+        registry: _toolRegistry,
+        systemPrompt: "You are a helpful on-device assistant. Use tools when requested by the user.",
+      );
+      final response = await session.chat(prompt);
+      setState(() {
+        _toolLog = "AI Response: $response";
+      });
+    } catch (e) {
+      setState(() {
+        _toolLog = "Error: $e";
+      });
+    } finally {
+      setState(() {
+        _isToolRunning = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Icon(Icons.manage_search, size: 80, color: Colors.blueAccent),
-          const SizedBox(height: 20),
+          // ================= RAG SECTION =================
+          const Icon(Icons.manage_search, size: 60, color: Colors.blueAccent),
+          const SizedBox(height: 10),
           const Text(
             "RAG (Retrieval-Augmented Generation)",
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           const Text(
             "Insert a secret document into the local Vector DB so the AI can read it.",
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _isIngesting ? null : _ingestDummyDocument,
             icon: const Icon(Icons.upload_file),
             label: const Text('Ingest Secret Document'),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           if (_isIngesting) const CircularProgressIndicator(),
-          Text(_status, textAlign: TextAlign.center),
-          const SizedBox(height: 40),
-          const Divider(),
-          const SizedBox(height: 20),
+          Text(_status, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 16),
           const Text(
             "To test this, go to the Chat tab and ask: 'What is the secret password?'\n(Chat tab is now configured with DenizenRagSession!)",
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 16),
+
+          // ================= TOOLS SECTION =================
+          const Icon(Icons.build_circle, size: 60, color: Colors.orangeAccent),
+          const SizedBox(height: 10),
+          const Text(
+            "On-Device Tool Use & Function Calling",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "AI automatically detects tool calls (battery or flashlight) and runs local Dart code.",
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          
+          // Simulated Device State Card
+          Card(
+            color: Colors.grey[900],
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Column(
+                    children: [
+                      Icon(
+                        _flashlightEnabled ? Icons.flash_on : Icons.flash_off,
+                        color: _flashlightEnabled ? Colors.yellow : Colors.grey,
+                        size: 32,
+                      ),
+                      const SizedBox(height: 4),
+                      Text("Flashlight: ${_flashlightEnabled ? 'ON' : 'OFF'}"),
+                    ],
+                  ),
+                  Column(
+                    children: [
+                      const Icon(Icons.battery_std, color: Colors.green, size: 32),
+                      const SizedBox(height: 4),
+                      Text("Battery: $_batteryLevel%"),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Tool Prompt Input
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _toolController,
+                  decoration: const InputDecoration(
+                    hintText: "Try: 'turn on the flashlight' or 'battery status'",
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _runToolRequest(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: _isToolRunning ? null : _runToolRequest,
+                child: const Text("Run"),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_isToolRunning) const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          
+          // Log output console
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[800]!),
+            ),
+            child: Text(
+              _toolLog,
+              style: const TextStyle(fontFamily: 'monospace', color: Colors.lightGreenAccent),
+            ),
           ),
         ],
       ),
@@ -575,3 +740,58 @@ class _VoiceTabState extends State<VoiceTab> {
     );
   }
 }
+
+class BatteryTool extends DenizenTool {
+  final int Function() getBatteryLevel;
+  final void Function(String) logCallback;
+
+  BatteryTool({
+    required this.getBatteryLevel,
+    required this.logCallback,
+  }) : super(
+          name: 'get_battery_status',
+          description: 'Check the current device battery percentage and charging state.',
+          parametersSchema: {
+            'type': 'object',
+            'properties': {},
+          },
+        );
+
+  @override
+  Future<Map<String, dynamic>> execute(Map<String, dynamic> arguments) async {
+    logCallback("Native Tool Executed: get_battery_status() called.");
+    return {'battery_level': getBatteryLevel(), 'is_charging': false};
+  }
+}
+
+class FlashlightTool extends DenizenTool {
+  final void Function(bool) setFlashlight;
+  final void Function(String) logCallback;
+
+  FlashlightTool({
+    required this.setFlashlight,
+    required this.logCallback,
+  }) : super(
+          name: 'toggle_flashlight',
+          description: 'Turns the device flashlight/torch on or off based on the enable argument.',
+          parametersSchema: {
+            'type': 'object',
+            'properties': {
+              'enable': {
+                'type': 'boolean',
+                'description': 'True to turn on, false to turn off.'
+              }
+            },
+            'required': ['enable'],
+          },
+        );
+
+  @override
+  Future<Map<String, dynamic>> execute(Map<String, dynamic> arguments) async {
+    final enable = arguments['enable'] as bool? ?? false;
+    setFlashlight(enable);
+    logCallback("Native Tool Executed: toggle_flashlight(enable: $enable) called.");
+    return {'success': true, 'flashlight_enabled': enable};
+  }
+}
+
