@@ -66,7 +66,7 @@ class _MainDashboardState extends State<MainDashboard> {
     }
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Denizen AI Showcase'),
@@ -76,6 +76,7 @@ class _MainDashboardState extends State<MainDashboard> {
               Tab(icon: Icon(Icons.chat), text: 'Chat'),
               Tab(icon: Icon(Icons.manage_search), text: 'RAG & Tools'),
               Tab(icon: Icon(Icons.mic), text: 'Voice'),
+              Tab(icon: Icon(Icons.visibility), text: 'Vision'),
             ],
           ),
         ),
@@ -85,6 +86,7 @@ class _MainDashboardState extends State<MainDashboard> {
             ChatTab(),
             RagTab(),
             VoiceTab(),
+            VisionTab(),
           ],
         ),
       ),
@@ -792,6 +794,229 @@ class FlashlightTool extends DenizenTool {
     setFlashlight(enable);
     logCallback("Native Tool Executed: toggle_flashlight(enable: $enable) called.");
     return {'success': true, 'flashlight_enabled': enable};
+  }
+}
+
+class VisionTab extends StatefulWidget {
+  const VisionTab({super.key});
+
+  @override
+  State<VisionTab> createState() => _VisionTabState();
+}
+
+class _VisionTabState extends State<VisionTab> {
+  String _aiResponse = "";
+  bool _isAnalyzing = false;
+  final TextEditingController _promptController = TextEditingController(
+    text: "What is in this image?",
+  );
+
+  final List<Map<String, String>> _mockImages = [
+    {
+      'name': 'Pressure Valve Error',
+      'desc': 'A standard water pipe with a red pressure release valve pointing to the right showing critical leaks.',
+      'icon': 'build'
+    },
+    {
+      'name': 'Circuit Board Component',
+      'desc': 'A green printed circuit board with dynamic capacitors, resistors, and a blue microcontroller chip in the center.',
+      'icon': 'developer_board'
+    },
+    {
+      'name': 'Receipt Scan',
+      'desc': 'A printed scanner copy of a business receipt showing 1x local diagnostic tool kit total: \$85.00.',
+      'icon': 'receipt_long'
+    }
+  ];
+  
+  int _selectedImageIndex = -1;
+
+
+
+  Future<void> _analyzeSelectedImage() async {
+    if (_selectedImageIndex == -1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an image from the mock list first.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAnalyzing = true;
+      _aiResponse = "Analyzing visual data...";
+    });
+
+    try {
+      final mockImageText = _mockImages[_selectedImageIndex]['desc']!;
+      final prompt = _promptController.text.trim();
+
+      // Simulate on-device visual projector inference latency
+      await Future.delayed(const Duration(seconds: 2));
+
+      setState(() {
+        _aiResponse = "Visual Analysis Results:\n\n"
+            "Based on the image data ($mockImageText) and prompt request ($prompt):\n\n"
+            "The offline vision model detects a ${_mockImages[_selectedImageIndex]['name']}. "
+            "It matches the details: $mockImageText.";
+      });
+    } catch (e) {
+      setState(() {
+        _aiResponse = "Error: $e";
+      });
+    } finally {
+      setState(() {
+        _isAnalyzing = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            const Icon(Icons.visibility, size: 60, color: Colors.purpleAccent),
+            const SizedBox(height: 10),
+            const Text(
+              "Multimodal Vision Analysis",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              "Process camera snapshots or photos offline using local visual projectors (LLaVA / CLIP).",
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Image Selector Carousel
+            const Text(
+              "Select a Mock Image to Analyze:",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: List.generate(_mockImages.length, (index) {
+                final isSelected = _selectedImageIndex == index;
+                final img = _mockImages[index];
+                
+                IconData getIcon(String name) {
+                  if (name == 'build') return Icons.build;
+                  if (name == 'developer_board') return Icons.developer_board;
+                  return Icons.receipt_long;
+                }
+
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedImageIndex = index;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.purple.withOpacity(0.2) : Colors.grey[900],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected ? Colors.purpleAccent : Colors.grey[800]!,
+                        width: 2,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(getIcon(img['icon']!), size: 40, color: isSelected ? Colors.purpleAccent : Colors.grey),
+                        const SizedBox(height: 4),
+                        Text(img['name']!, style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 20),
+            
+            // Selected Image Preview
+            if (_selectedImageIndex != -1)
+              Card(
+                color: Colors.grey[900],
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.image, size: 48, color: Colors.grey),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _mockImages[_selectedImageIndex]['name']!,
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _mockImages[_selectedImageIndex]['desc']!,
+                              style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 20),
+
+            // Input Prompt
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _promptController,
+                    decoration: const InputDecoration(
+                      hintText: "Enter visual prompt (e.g. 'Is it leaking?')",
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => _analyzeSelectedImage(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: _isAnalyzing ? null : _analyzeSelectedImage,
+                  icon: const Icon(Icons.search),
+                  label: const Text("Analyze"),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            if (_isAnalyzing) const LinearProgressIndicator(),
+            const SizedBox(height: 10),
+
+            // Output Card
+            if (_aiResponse.isNotEmpty)
+              Card(
+                color: Colors.grey[850],
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "👁️ Vision Analysis Output:",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: Colors.purpleAccent),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(_aiResponse, style: const TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
