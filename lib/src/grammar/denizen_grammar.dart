@@ -1,4 +1,4 @@
-import 'dart:convert';
+import '../tools/denizen_tool.dart';
 
 /// Represents a GBNF (GGML BNF) Grammar for constraining LLM token outputs.
 class DenizenGrammar {
@@ -40,6 +40,36 @@ ws     ::= ([ \\t\\n\\r])*
 root ::= $choices
 ''';
     return DenizenGrammar(gbnf);
+  }
+
+  /// Generates a GBNF grammar matching a specific set of tools for perfect structured output.
+  static DenizenGrammar tools(List<DenizenTool> tools) {
+    if (tools.isEmpty) return json();
+
+    final buffer = StringBuffer();
+    buffer.writeln('root ::= text | tool_call');
+    buffer.writeln('text ::= [^\\{\\[]*'); // simple fallback text
+    
+    final toolChoices = tools.map((t) => '${t.name}_call').join(' | ');
+    buffer.writeln('tool_call ::= "{" ws "\\"tool\\"" ":" ws ( $toolChoices ) "}" ws');
+
+    for (final tool in tools) {
+      final name = tool.name;
+      // Compile parameter schema keys if present
+      final propsRaw = tool.parametersSchema['properties'];
+      final props = propsRaw is Map ? Map<String, dynamic>.from(propsRaw) : const <String, dynamic>{};
+      final keysGbnf = props.keys.map((k) => '"\\"$k\\"" ":" ws value').join(' "," ws ');
+      final argsPattern = keysGbnf.isEmpty ? '"{" ws "}"' : '"{" ws $keysGbnf "}"';
+      
+      buffer.writeln('"${name}_call" ::= "\\"tool\\"" ":" ws "\\"$name\\"" "," ws "\\"args\\"" ":" ws $argsPattern');
+    }
+
+    buffer.writeln('value  ::= string | number | "true" | "false" | "null"');
+    buffer.writeln('string ::= "\\"" ( [^"\\\\] | "\\\\" [\\"\\\\/bfnrt] )* "\\"" ws');
+    buffer.writeln('number ::= "-"? ([0-9]+) ("." [0-9]+)? ws');
+    buffer.writeln('ws     ::= ([ \\t\\n\\r])*');
+
+    return DenizenGrammar(buffer.toString());
   }
 
   @override
