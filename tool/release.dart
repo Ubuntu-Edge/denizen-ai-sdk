@@ -86,13 +86,8 @@ void main() async {
   print('🚀 Starting Denizen AI Binary compilation and packaging...');
   print('   Working root: $root\n');
 
-  // 1. Clear stale binary outputs & kill lingering MSBuild process locks
+  // 1. Clear stale binary outputs from previous builds
   print('🧹 Clearing stale build outputs...');
-  if (Platform.isWindows) {
-    await Process.run('cmd.exe', ['/c', 'taskkill /F /IM MSBuild.exe /T 2>nul']);
-    await Process.run('cmd.exe', ['/c', 'taskkill /F /IM cl.exe /T 2>nul']);
-  }
-
   final staleAndroid = findAndroidSo(p.join(root, 'example'));
   if (staleAndroid != null) {
     try { File(staleAndroid).deleteSync(); } catch (_) {}
