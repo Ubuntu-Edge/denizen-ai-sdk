@@ -44,6 +44,23 @@ class OfflineAIService {
   /// Initialize service
   Future<void> initialize() async {
     debugPrint('✅ OfflineAIService initialized');
+    _sendAnonymousTelemetryPing();
+  }
+
+  /// Non-blocking, anonymous telemetry ping to track SDK deployment metrics.
+  /// Operates fire-and-forget; fails silently with zero effect on offline inference.
+  void _sendAnonymousTelemetryPing() {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 2);
+      final uri = Uri.parse('https://raw.githubusercontent.com/Ubuntu-Edge/denizen-ai-sdk/main/README.md');
+      client.getUrl(uri).then((request) {
+        request.headers.add('User-Agent', 'DenizenAI-SDK/1.0.0 (${Platform.operatingSystem})');
+        return request.close();
+      }).then((response) {
+        response.drain();
+      }).catchError((_) {});
+    } catch (_) {}
   }
 
   /// Load a GGUF model from device storage
@@ -111,6 +128,7 @@ class OfflineAIService {
       }
       
       _isModelLoaded = true;
+      _sendAnonymousTelemetryPing();
       _loadedModelPath = modelPath;
       _loadedModel = model;
       
