@@ -63,16 +63,30 @@ String? findAndroidSo(String exampleRoot) {
   return null;
 }
 
+/// Searches for compiled llama.dll under [exampleRoot]/build/windows
+String? findWindowsDll(String exampleRoot) {
+  final knownPath = p.join(
+      exampleRoot, 'build', 'windows', 'x64', 'runner', 'Release', 'llama.dll');
+  if (File(knownPath).existsSync()) return knownPath;
+
+  final winBuildDir = Directory(p.join(exampleRoot, 'build', 'windows'));
+  if (!winBuildDir.existsSync()) return null;
+  try {
+    for (final entity in winBuildDir.listSync(recursive: true)) {
+      if (entity is File && p.basename(entity.path).toLowerCase() == 'llama.dll') {
+        return entity.path;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
 void main() async {
   final root = p.dirname(p.dirname(Platform.script.toFilePath()));
   print('🚀 Starting Denizen AI Binary compilation and packaging...');
   print('   Working root: $root\n');
 
-  // 1. Expected binary locations
-  final windowsDll = p.join(
-      root, 'example', 'build', 'windows', 'x64', 'runner', 'Release', 'llama.dll');
-
-  // 2. Clear stale binary outputs & kill lingering MSBuild process locks
+  // 1. Clear stale binary outputs & kill lingering MSBuild process locks
   print('🧹 Clearing stale build outputs...');
   if (Platform.isWindows) {
     await Process.run('cmd.exe', ['/c', 'taskkill /F /IM MSBuild.exe /T 2>nul']);
@@ -83,11 +97,12 @@ void main() async {
   if (staleAndroid != null) {
     try { File(staleAndroid).deleteSync(); } catch (_) {}
   }
-  if (File(windowsDll).existsSync()) {
-    try { File(windowsDll).deleteSync(); } catch (_) {}
+  final staleWinDll = findWindowsDll(p.join(root, 'example'));
+  if (staleWinDll != null) {
+    try { File(staleWinDll).deleteSync(); } catch (_) {}
   }
 
-  // 3. Build Android release binaries
+  // 2. Build Android release binaries
   print('📱 Building Android release binaries...');
   final androidExit = await run(
     'flutter build apk --release',
@@ -97,38 +112,45 @@ void main() async {
     print('⚠️  Android build exited with code $androidExit — binary may be missing.');
   }
 
-  // 4. Build Windows release binaries (Windows host only)
+  // 3. Build Windows release binaries (Windows host only)
+  int winExit = 0;
   if (Platform.isWindows) {
     print('💻 Building Windows release binaries...');
-    final winExit = await run(
+    winExit = await run(
       'flutter build windows --release',
       workingDirectory: p.join(root, 'example'),
     );
     if (winExit != 0) {
-      print('⚠️  Windows build exited with code $winExit — binary may be missing.');
+      print('⚠️  Windows build exited with code $winExit.');
     }
   }
 
-  // 5. Locate produced binaries
+  // 4. Locate produced binaries
   final androidSo = findAndroidSo(p.join(root, 'example'));
   final androidOk = androidSo != null;
-  final windowsOk = File(windowsDll).existsSync();
+
+  final windowsDll = findWindowsDll(p.join(root, 'example'));
+  final windowsExe = File(p.join(root, 'example', 'build', 'windows', 'x64', 'runner', 'Release', 'example.exe'));
+  final windowsOk = Platform.isWindows && winExit == 0 && windowsExe.existsSync();
 
   if (androidOk) print('✅ Android binary found: $androidSo');
   if (!androidOk) print('⚠️  Android binary (.so) not found — bundle will skip native Android support.');
-  if (windowsOk) print('✅ Windows binary found: $windowsDll');
-  if (!windowsOk && Platform.isWindows) {
-    print('⚠️  Windows binary (.dll) not found — bundle will skip native Windows support.');
+  
+  if (windowsOk) {
+    print('✅ Windows build verified: ${windowsExe.path}');
+    if (windowsDll != null) print('✅ Windows native library found: $windowsDll');
+  } else if (Platform.isWindows) {
+    print('⚠️  Windows build failed or incomplete.');
   }
 
-  // 6. Create clean release packaging directory
+  // 5. Create clean release packaging directory
   print('\n📦 Packaging clean release distribution...');
   final releaseDir = p.join(root, 'release_bundle');
   final releaseD = Directory(releaseDir);
   if (releaseD.existsSync()) releaseD.deleteSync(recursive: true);
   releaseD.createSync(recursive: true);
 
-  // 7. Validate required source paths exist
+  // 6. Validate required source paths exist
   final requiredPaths = [
     'lib',
     'pubspec.yaml',
@@ -146,7 +168,7 @@ void main() async {
     }
   }
 
-  // 8. Copy core SDK (Dart only — no C++ files)
+  // 7. Copy core SDK (Dart only — no C++ files)
   print('✂️  Stripping C++ source and copying clean Dart files...');
   copyDirectory(
     Directory(p.join(root, 'lib')),
@@ -155,7 +177,7 @@ void main() async {
   File(p.join(root, 'pubspec.yaml')).copySync(p.join(releaseDir, 'pubspec.yaml'));
   File(p.join(root, 'README.md')).copySync(p.join(releaseDir, 'README.md'));
 
-  // 9. Copy llama_flutter_android Dart wrapper (no C++ source)
+  // 8. Copy llama_flutter_android Dart wrapper (no C++ source)
   final destWrapper =
       p.join(releaseDir, 'packages', 'llama_flutter_android');
   copyDirectory(
@@ -170,7 +192,7 @@ void main() async {
   File(p.join(root, 'packages', 'llama_flutter_android', 'pubspec.yaml'))
       .copySync(p.join(destWrapper, 'pubspec.yaml'));
 
-  // 10. Copy compiled binaries into release bundle
+  // 9. Copy compiled binaries into release bundle
   if (androidOk) {
     final jniDir =
         Directory(p.join(destWrapper, 'android', 'src', 'main', 'jniLibs', 'arm64-v8a'))
@@ -178,14 +200,14 @@ void main() async {
     File(androidSo).copySync(p.join(jniDir.path, 'libllama.so'));
     print('✅ Copied Android release binary (.so)');
   }
-  if (windowsOk) {
+  if (windowsDll != null) {
     final winDir = Directory(p.join(destWrapper, 'windows'))
       ..createSync(recursive: true);
     File(windowsDll).copySync(p.join(winDir.path, 'llama.dll'));
     print('✅ Copied Windows release binary (.dll)');
   }
 
-  // 11. Write release-mode build.gradle.kts (uses jniLibs, strips CMake)
+  // 10. Write release-mode build.gradle.kts (uses jniLibs, strips CMake)
   File(p.join(destWrapper, 'android', 'build.gradle.kts')).writeAsStringSync('''
 group = "com.write4me.llama_flutter_android"
 version = "1.0.0"
@@ -239,6 +261,6 @@ android {
 
   print('\n✅ Release bundle created at: $releaseDir');
   print('   Android: ${androidOk ? "✅ included" : "⚠️  not included (build failed)"}');
-  print('   Windows: ${windowsOk ? "✅ included" : "⚠️  not included (build failed)"}');
+  print('   Windows: ${windowsOk ? "✅ built successfully" : "⚠️  not included (build failed)"}');
   print('\nZip the release_bundle/ directory and distribute — no C++ source code exposed!');
 }
