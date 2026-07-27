@@ -1,11 +1,22 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:denizen_ai/denizen_ai.dart';
-import 'package:whisper_flutter_new/whisper_flutter_new.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   
   group('DenizenVoiceSession', () {
+    setUp(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('com.llfbandit.record/messages'), (methodCall) async {
+        return null;
+      });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('flutter_tts'), (methodCall) async {
+        return null;
+      });
+    });
+
     test('Initialization with default prompt', () {
       final session = DenizenVoiceSession();
       expect(session, isNotNull);

@@ -30,9 +30,22 @@ class VectorStorageService {
     if (Platform.isAndroid) {
       lib = DynamicLibrary.open('libsqlite_vec.so');
     } else if (Platform.isWindows) {
-      // Point to the pre-downloaded dll for host testing using absolute path
-      final dllPath = p.join(Directory.current.path, 'build', 'windows_deps', 'vec0.dll');
-      lib = DynamicLibrary.open(dllPath);
+      // Look for the pre-downloaded dll in multiple potential locations
+      final possiblePaths = [
+        p.join(Directory.current.path, 'windows', 'vec0.dll'),
+        p.join(Directory.current.path, 'build', 'windows_deps', 'vec0.dll'),
+        p.join(Directory.current.path, 'example', 'windows', 'vec0.dll'),
+        p.join(Directory.current.path, 'vec0.dll'),
+      ];
+      String? finalDllPath;
+      for (final path in possiblePaths) {
+        if (File(path).existsSync()) {
+          finalDllPath = path;
+          break;
+        }
+      }
+      finalDllPath ??= p.join(Directory.current.path, 'build', 'windows_deps', 'vec0.dll');
+      lib = DynamicLibrary.open(finalDllPath);
     } else {
       throw UnsupportedError('Unsupported platform for sqlite-vec');
     }

@@ -281,7 +281,7 @@ class DenizenModelManager {
     // Evict models until we have enough space
     for (final candidate in evictableCandidates) {
       final available = await _downloadService.getAvailableStorageBytes();
-      final buffer = 500 * 1024 * 1024; // 500MB safety buffer
+      const buffer = 500 * 1024 * 1024; // 500MB safety buffer
       if (available > (requiredBytes + buffer)) {
         break; // We have enough space now!
       }
