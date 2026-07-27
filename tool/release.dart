@@ -63,22 +63,26 @@ String? findAndroidSo(String exampleRoot) {
   return null;
 }
 
-/// Searches for compiled llama.dll under [exampleRoot]/build/windows
-String? findWindowsDll(String exampleRoot) {
-  final knownPath = p.join(
-      exampleRoot, 'build', 'windows', 'x64', 'runner', 'Release', 'llama.dll');
-  if (File(knownPath).existsSync()) return knownPath;
-
-  final winBuildDir = Directory(p.join(exampleRoot, 'build', 'windows'));
-  if (!winBuildDir.existsSync()) return null;
-  try {
-    for (final entity in winBuildDir.listSync(recursive: true)) {
-      if (entity is File && p.basename(entity.path).toLowerCase() == 'llama.dll') {
-        return entity.path;
-      }
+/// Searches for custom native DLL dependencies (like vec0.dll) under [root]
+List<File> findCustomWindowsDlls(String root) {
+  final dlls = <File>[];
+  final searchDirs = [
+    Directory(p.join(root, 'windows_deps')),
+    Directory(p.join(root, 'example', 'windows_deps')),
+    Directory(p.join(root, 'windows')),
+  ];
+  for (final dir in searchDirs) {
+    if (dir.existsSync()) {
+      try {
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && entity.path.toLowerCase().endsWith('.dll')) {
+            dlls.add(entity);
+          }
+        }
+      } catch (_) {}
     }
-  } catch (_) {}
-  return null;
+  }
+  return dlls;
 }
 
 void main() async {
@@ -86,15 +90,11 @@ void main() async {
   print('🚀 Starting Denizen AI Binary compilation and packaging...');
   print('   Working root: $root\n');
 
-  // 1. Clear stale binary outputs from previous builds
+  // 1. Clear stale binary outputs
   print('🧹 Clearing stale build outputs...');
   final staleAndroid = findAndroidSo(p.join(root, 'example'));
   if (staleAndroid != null) {
     try { File(staleAndroid).deleteSync(); } catch (_) {}
-  }
-  final staleWinDll = findWindowsDll(p.join(root, 'example'));
-  if (staleWinDll != null) {
-    try { File(staleWinDll).deleteSync(); } catch (_) {}
   }
 
   // 2. Build Android release binaries
@@ -124,16 +124,18 @@ void main() async {
   final androidSo = findAndroidSo(p.join(root, 'example'));
   final androidOk = androidSo != null;
 
-  final windowsDll = findWindowsDll(p.join(root, 'example'));
+  final customDlls = findCustomWindowsDlls(root);
   final windowsExe = File(p.join(root, 'example', 'build', 'windows', 'x64', 'runner', 'Release', 'example.exe'));
   final windowsOk = Platform.isWindows && winExit == 0 && windowsExe.existsSync();
 
-  if (androidOk) print('✅ Android binary found: $androidSo');
+  if (androidOk) print('✅ Android native binary found: $androidSo');
   if (!androidOk) print('⚠️  Android binary (.so) not found — bundle will skip native Android support.');
   
   if (windowsOk) {
-    print('✅ Windows build verified: ${windowsExe.path}');
-    if (windowsDll != null) print('✅ Windows native library found: $windowsDll');
+    print('✅ Windows application build verified: ${windowsExe.path}');
+    for (final dll in customDlls) {
+      print('✅ Custom Windows native library found: ${dll.path}');
+    }
   } else if (Platform.isWindows) {
     print('⚠️  Windows build failed or incomplete.');
   }
@@ -193,13 +195,15 @@ void main() async {
         Directory(p.join(destWrapper, 'android', 'src', 'main', 'jniLibs', 'arm64-v8a'))
           ..createSync(recursive: true);
     File(androidSo).copySync(p.join(jniDir.path, 'libllama.so'));
-    print('✅ Copied Android release binary (.so)');
+    print('✅ Copied Android release binary (libllama.so)');
   }
-  if (windowsDll != null) {
-    final winDir = Directory(p.join(destWrapper, 'windows'))
+  if (customDlls.isNotEmpty) {
+    final winDepsDir = Directory(p.join(releaseDir, 'windows_deps'))
       ..createSync(recursive: true);
-    File(windowsDll).copySync(p.join(winDir.path, 'llama.dll'));
-    print('✅ Copied Windows release binary (.dll)');
+    for (final dll in customDlls) {
+      dll.copySync(p.join(winDepsDir.path, p.basename(dll.path)));
+      print('✅ Copied Windows native library (${p.basename(dll.path)})');
+    }
   }
 
   // 10. Write release-mode build.gradle.kts (uses jniLibs, strips CMake)
@@ -255,7 +259,10 @@ android {
 ''');
 
   print('\n✅ Release bundle created at: $releaseDir');
-  print('   Android: ${androidOk ? "✅ included" : "⚠️  not included (build failed)"}');
-  print('   Windows: ${windowsOk ? "✅ built successfully" : "⚠️  not included (build failed)"}');
+  print('   Android Native Core (libllama.so): ${androidOk ? "✅ included" : "⚠️  not included (build failed)"}');
+  print('   Windows App Build: ${windowsOk ? "✅ verified" : "⚠️  not verified (build failed)"}');
+  if (customDlls.isNotEmpty) {
+    print('   Windows Native Libraries: ✅ ${customDlls.map((e) => p.basename(e.path)).join(', ')} included');
+  }
   print('\nZip the release_bundle/ directory and distribute — no C++ source code exposed!');
 }
