@@ -51,7 +51,7 @@ root ::= $choices
     buffer.writeln('text ::= [^\\{\\[]*'); // simple fallback text
     
     final toolChoices = tools.map((t) => '${t.name}_call').join(' | ');
-    buffer.writeln('tool_call ::= "{" ws "\\"tool\\"" ":" ws ( $toolChoices ) "}" ws');
+    buffer.writeln('tool_call ::= "{" ws ( $toolChoices ) "}" ws');
 
     for (final tool in tools) {
       final name = tool.name;
