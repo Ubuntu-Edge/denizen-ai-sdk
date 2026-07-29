@@ -47,7 +47,7 @@
 
 ## 📦 Installation for App Developers
 
-Downstream developers should depend on the **Pre-Compiled SDK Repository** (`denizen-ai-sdk`), which includes pre-compiled `.so` binaries and requires zero native C++ compiler tools:
+Downstream developers can install `denizen_ai` directly in their Flutter project:
 
 ```yaml
 dependencies:
@@ -58,12 +58,16 @@ dependencies:
     git:
       url: https://github.com/Ubuntu-Edge/denizen-ai-sdk.git
       ref: main
+
+  path_provider: ^2.1.1
 ```
 
 Run in your terminal:
 ```bash
 flutter pub get
 ```
+
+📖 **Complete Release Guide**: Check out our [Getting Started Guide](file:///c:/Users/ibrahim.fadhili/OneDrive%20-%20Agile%20Business%20Solutions/Desktop/offline_ai_architecture/docs/GETTING_STARTED.md) for full step-by-step documentation, recommended GGUF model links, and platform setup.
 
 ---
 
