@@ -26,6 +26,7 @@ export 'src/tools/denizen_tool_registry.dart';
 export 'src/tools/denizen_tool_session.dart';
 export 'src/vision/denizen_vision_session.dart';
 export 'src/audio/denizen_voice_session.dart';
+export 'src/audio/offline_audio_service.dart';
 export 'src/rag/embedding_provider.dart';
 export 'src/rag/tflite_embedding_provider.dart';
 export 'src/rag/vector_storage_service.dart';

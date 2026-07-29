@@ -8,6 +8,8 @@ class OfflineAudioService {
   static final OfflineAudioService _instance = OfflineAudioService._internal();
   static OfflineAudioService get instance => _instance;
 
+  factory OfflineAudioService() => _instance;
+
   OfflineAudioService._internal();
 
   Whisper? _whisper;
@@ -71,6 +73,8 @@ class OfflineAudioService {
   /// Listen to speech from the microphone using system Speech-to-Text
   Future<void> startListening({
     required Function(String recognizedText) onResult,
+    Duration pauseFor = const Duration(seconds: 5),
+    Duration listenFor = const Duration(seconds: 60),
   }) async {
     bool available = await initSpeech();
     if (available) {
@@ -80,6 +84,11 @@ class OfflineAudioService {
             onResult(result.recognizedWords);
           }
         },
+        listenFor: listenFor,
+        pauseFor: pauseFor,
+        partialResults: true,
+        listenMode: stt.ListenMode.dictation,
+        cancelOnError: false,
       );
     } else {
       onResult("Speech recognition not available on device.");
