@@ -72,7 +72,7 @@ class OfflineAudioService {
 
   /// Listen to speech from the microphone using system Speech-to-Text
   Future<void> startListening({
-    required Function(String recognizedText) onResult,
+    required Function(String recognizedText, bool isFinal) onResult,
     Duration pauseFor = const Duration(seconds: 5),
     Duration listenFor = const Duration(seconds: 60),
   }) async {
@@ -81,7 +81,7 @@ class OfflineAudioService {
       await _speech.listen(
         onResult: (result) {
           if (result.recognizedWords.isNotEmpty) {
-            onResult(result.recognizedWords);
+            onResult(result.recognizedWords, result.finalResult);
           }
         },
         listenFor: listenFor,
@@ -91,7 +91,7 @@ class OfflineAudioService {
         cancelOnError: false,
       );
     } else {
-      onResult("Speech recognition not available on device.");
+      onResult("Speech recognition not available on device.", true);
     }
   }
 
