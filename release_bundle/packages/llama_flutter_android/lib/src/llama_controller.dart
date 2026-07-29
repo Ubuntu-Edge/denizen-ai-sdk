@@ -62,11 +62,15 @@ class LlamaController implements LlamaFlutterApi {
     bool penalizeNewline = true,
   }) {
     if (_isGenerating) {
-      throw StateError('Already generating');
+      stop();
     }
 
     _isGenerating = true;
-    _tokenController = StreamController<String>.broadcast();
+    _tokenController = StreamController<String>.broadcast(
+      onCancel: () {
+        stop();
+      },
+    );
     
     // Start generation
     _api.generate(GenerateRequest(
@@ -86,16 +90,22 @@ class LlamaController implements LlamaFlutterApi {
       mirostatEta: mirostatEta,
       seed: seed,
       penalizeNewline: penalizeNewline,
-    ));
+    )).catchError((e) {
+      _isGenerating = false;
+      _tokenController?.addError(e);
+      _tokenController?.close();
+      _tokenController = null;
+    });
 
     return _tokenController!.stream;
   }
 
   /// Stop current generation
   Future<void> stop() async {
-    if (!_isGenerating) return;
-    await _api.stop();
     _isGenerating = false;
+    try {
+      await _api.stop();
+    } catch (_) {}
   }
 
   /// Unload model and free resources
@@ -133,11 +143,15 @@ class LlamaController implements LlamaFlutterApi {
     bool penalizeNewline = true,
   }) {
     if (_isGenerating) {
-      throw StateError('Already generating');
+      stop();
     }
 
     _isGenerating = true;
-    _tokenController = StreamController<String>.broadcast();
+    _tokenController = StreamController<String>.broadcast(
+      onCancel: () {
+        stop();
+      },
+    );
     
     // Start chat generation
     _api.generateChat(ChatRequest(
@@ -158,7 +172,12 @@ class LlamaController implements LlamaFlutterApi {
       mirostatEta: mirostatEta,
       seed: seed,
       penalizeNewline: penalizeNewline,
-    ));
+    )).catchError((e) {
+      _isGenerating = false;
+      _tokenController?.addError(e);
+      _tokenController?.close();
+      _tokenController = null;
+    });
 
     return _tokenController!.stream;
   }
@@ -185,20 +204,11 @@ class LlamaController implements LlamaFlutterApi {
   }
 
   /// Register a custom chat template
-  /// 
-  /// Template content should use placeholders:
-  /// - {system} for system messages
-  /// - {user} for user messages
-  /// - {assistant} for assistant messages
-  /// 
-  /// Example: "<s>[INST]{user}[/INST]{assistant}</s>"
   Future<void> registerCustomTemplate(String name, String content) async {
     await _api.registerCustomTemplate(name, content);
   }
 
   /// Unregister a custom chat template
-  /// 
-  /// Removes a previously registered custom template
   Future<void> unregisterCustomTemplate(String name) async {
     await _api.unregisterCustomTemplate(name);
   }
@@ -218,10 +228,14 @@ class LlamaController implements LlamaFlutterApi {
 
   @override
   void onError(String error) {
+    _isGenerating = false;
     _tokenController?.addError(Exception(error));
+    _tokenController?.close();
+    _tokenController = null;
   }
 
   @override
   void onLoadProgress(double progress) {
     _progressController.add(progress);
-  }}
+  }
+}
