@@ -30,6 +30,9 @@ export 'src/rag/embedding_provider.dart';
 export 'src/rag/tflite_embedding_provider.dart';
 export 'src/rag/vector_storage_service.dart';
 export 'src/rag/document_ingestion_service.dart';
+export 'src/models/offline_model.dart';
+export 'src/models/default_offline_models.dart';
+export 'src/services/model_download_service.dart';
 
 
 /// The core entry point for the Denizen AI SDK.
