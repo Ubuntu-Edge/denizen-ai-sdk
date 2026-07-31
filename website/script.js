@@ -107,21 +107,18 @@ import 'package:path_provider/path_provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // High-level DenizenAI Singleton instance
+  final denizen = DenizenAI();
+
   final docsDir = await getApplicationDocumentsDirectory();
   final modelPath = '\${docsDir.path}/models/ubuntu-afya-medgemma.gguf';
 
-  // Initialize Native C++ Engine
-  final engine = DenizenEngine();
-  await engine.initialize(
-    modelPath: modelPath,
-    contextSize: 2048,
-    gpuLayers: 0, // 0 for CPU; > 0 for Hardware Acceleration
-  );
+  // Download & load GGUF model into native memory
+  await denizen.models.initializeModel(modelPath: modelPath);
 
-  // Stream local response offline
-  final tokenStream = engine.generateStream(
-    prompt: 'What are the primary danger signs in pediatric fever?',
-  );
+  // Start stateful session & stream tokens locally
+  final session = denizen.createSession();
+  final tokenStream = session.chatStream('What are the primary danger signs in pediatric fever?');
 
   await for (final token in tokenStream) {
     print(token);
@@ -135,45 +132,52 @@ final ragService = DocumentIngestionService(
   embeddingProvider: TFLiteEmbeddingProvider(),
 );
 
-// Ingest WHO Treatment Guidelines PDF offline
+// Ingest domain guidelines PDF offline
 await ragService.ingestDocument(
-  filePath: '/storage/emulated/0/Download/who_treatment_guidelines.pdf',
+  filePath: '/path/to/treatment_guidelines.pdf',
 );
 
 // Query local sqlite-vec database
 final matches = await ragService.queryVectorStore(
-  query: 'Dosage for Benzathine Penicillin G in pediatric syphilis',
+  query: 'Emergency protocol for pediatric fever',
   topK: 3,
 );
 
 for (final match in matches) {
-  print('Guideline Snippet: \${match.content} (Score: \${match.score})');
+  print('Snippet: \${match.content} (Score: \${match.score})');
 }`,
 
   triage: `import 'package:denizen_ai/denizen_ai.dart';
 
+// Custom on-device tool definition
+class EmergencyTriageTool extends DenizenTool {
+  EmergencyTriageTool()
+      : super(
+          name: 'log_emergency_triage',
+          description: 'Logs patient triage assessment',
+          parametersSchema: {
+            'type': 'object',
+            'properties': {
+              'urgency_level': {
+                'type': 'string',
+                'enum': ['NORMAL', 'URGENT', 'CRITICAL_REFERRAL']
+              },
+            },
+            'required': ['urgency_level']
+          },
+        );
+
+  @override
+  Future<Map<String, dynamic>> execute(Map<String, dynamic> arguments) async {
+    return {'status': 'recorded', 'priority': arguments['urgency_level']};
+  }
+}
+
 final registry = DenizenToolRegistry();
+registry.register(EmergencyTriageTool());
 
-// Register Emergency Triage Form with GBNF Schema Validation
-registry.registerTool(
-  name: 'log_emergency_triage',
-  description: 'Logs patient triage assessment and referral priority',
-  parameters: {
-    'type': 'object',
-    'properties': {
-      'patient_age': {'type': 'integer'},
-      'primary_symptom': {'type': 'string'},
-      'urgency_level': {
-        'type': 'string',
-        'enum': ['NORMAL', 'URGENT', 'CRITICAL_REFERRAL']
-      },
-    },
-    'required': ['patient_age', 'urgency_level']
-  },
-  handler: (args) async => 'Triage Priority Recorded: \${args['urgency_level']}',
-);
-
-final toolSession = DenizenToolSession(engine: engine, registry: registry);
+final denizen = DenizenAI();
+final toolSession = denizen.createToolSession(registry: registry);
 
 // Guarantees 100% valid structured JSON output without syntax errors
 final result = await toolSession.chat('Evaluate patient with high fever & neck stiffness.');
@@ -181,19 +185,18 @@ print(result);`,
 
   voice: `import 'package:denizen_ai/denizen_ai.dart';
 
-// Initialize Hands-Free Voice Consultation Session
-final voiceSession = DenizenVoiceSession(
-  engine: engine,
-  sttService: OfflineAudioService(), // Local Whisper STT
-);
+final denizen = DenizenAI();
 
-// Start voice loop for CHW field visits
+// Initialize Hands-Free Voice Consultation Session
+final voiceSession = denizen.createVoiceSession();
+
+// Start hands-free voice loop for field operations
 await voiceSession.startListening(
-  onSpeechRecognized: (chwSpokeText) {
-    print('CHW Spoke: \$chwSpokeText');
+  onSpeechRecognized: (userVoiceText) {
+    print('User Spoke: \$userVoiceText');
   },
-  onResponseGenerated: (aiReplyAudio) {
-    print('AI Audio Reply Generated Offline!');
+  onResponseGenerated: (aiReplyText) {
+    print('AI Replied: \$aiReplyText');
   },
 );`
 };
