@@ -1017,14 +1017,157 @@ body {
 @media (max-width: 900px) {
   .hero-grid, .quant-simulator-grid, .buildathon-cta-box {
     grid-template-columns: 1fr;
+    gap: 36px;
   }
   .hero-title {
-    font-size: 2.4rem;
+    font-size: 2.3rem;
   }
   .nav-links {
     display: none;
   }
   .footer-content {
     grid-template-columns: 1fr;
+    gap: 28px;
+    text-align: center;
+  }
+  .footer-brand .logo {
+    justify-content: center;
+  }
+  .footer-bottom {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+}
+
+@media (max-width: 640px) {
+  .container {
+    padding: 0 16px;
+  }
+  .hero-section {
+    padding: 40px 0;
+  }
+  .hero-title {
+    font-size: 1.85rem;
+    line-height: 1.25;
+    letter-spacing: -0.5px;
+  }
+  .sketch-highlight::after {
+    height: 8px;
+  }
+  .hero-subtitle {
+    font-size: 0.95rem;
+    margin-bottom: 20px;
+  }
+  .hero-buttons {
+    flex-direction: column;
+    width: 100%;
+    gap: 12px;
+  }
+  .hero-buttons .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 20px;
+    font-size: 0.95rem;
+  }
+  .install-box {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+  .install-command {
+    overflow-x: auto;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    padding-bottom: 4px;
+  }
+  .copy-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .sketch-sticky-note {
+    max-width: 100%;
+    width: 100%;
+    margin-top: 10px;
+    transform: rotate(0deg);
+    font-size: 1.15rem;
+  }
+  .brand-logo-img {
+    max-height: 36px;
+    padding: 3px 8px;
+  }
+  .nav-actions .btn-sketch-outline {
+    display: none;
+  }
+  .nav-actions .btn-sketch-primary {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+  .visual-metrics {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .metric-value {
+    font-size: 1.25rem;
+  }
+  .status-row {
+    font-size: 0.82rem;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .section-padding {
+    padding: 50px 0;
+  }
+  .section-title {
+    font-size: 1.7rem;
+  }
+  .section-subtitle {
+    font-size: 0.95rem;
+  }
+  .features-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .sketch-card {
+    padding: 20px;
+  }
+  .compression-stats {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .stat-arrow {
+    transform: rotate(90deg);
+  }
+  .chip-options {
+    flex-direction: column;
+  }
+  .chip {
+    text-align: center;
+    width: 100%;
+  }
+  .code-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tab-btn {
+    white-space: nowrap;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+  }
+  .code-block {
+    padding: 16px;
+    font-size: 0.8rem;
+  }
+  .buildathon-stats {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .b-num {
+    font-size: 1.6rem;
+  }
+  .buildathon-form-box {
+    padding: 20px;
   }
 }
