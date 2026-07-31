@@ -219,11 +219,20 @@ class DenizenModelManager {
 
   DenizenModelManager(this._downloadService, this._aiService);
 
-  /// Look up model from recommendations
+  /// Look up model from recommendations by ID, shorthand ID, or filename
   OfflineModel? _lookUpModel(String modelId) {
     try {
       final recommended = DefaultOfflineModels.getMedicalModels();
-      return recommended.firstWhere((m) => m.id == modelId);
+      final idLower = modelId.toLowerCase().trim();
+      return recommended.firstWhere((m) {
+        final mIdLower = m.id.toLowerCase();
+        final mIdBase = mIdLower.replaceAll('-q4', '');
+        final fnLower = (m.filename ?? '').toLowerCase();
+        return mIdLower == idLower ||
+            mIdBase == idLower ||
+            fnLower == idLower ||
+            fnLower == '$idLower.gguf';
+      });
     } catch (_) {
       return null;
     }
@@ -421,6 +430,155 @@ class DenizenModelManager {
 
     if (!loadSuccess) {
       throw Exception('Failed to load model into inference engine.');
+    }
+  }
+
+  /// Download a model directly from a custom URL with progress tracking.
+  Future<OfflineModel> downloadModel({
+    required String url,
+    required String modelId,
+    required String fileName,
+    String author = 'custom',
+    void Function(DenizenDownloadProgress progress)? onProgress,
+  }) async {
+    final downloadStream = _downloadService.downloadModel(
+      url: url,
+      modelId: modelId,
+      fileName: fileName,
+      author: author,
+    );
+
+    await for (final downloadProgress in downloadStream) {
+      if (downloadProgress.stage == ModelDownloadStage.failed) {
+        throw Exception('Download failed: ${downloadProgress.error}');
+      }
+      if (onProgress != null) {
+        onProgress(DenizenDownloadProgress(
+          progress: downloadProgress.progress / 100.0,
+          bytesDownloaded: downloadProgress.downloadedBytes ?? 0,
+          totalBytes: downloadProgress.totalBytes ?? 0,
+        ));
+      }
+    }
+
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/$author/$fileName');
+    final fileSize = await modelFile.exists() ? await modelFile.length() : 0;
+
+    return OfflineModel(
+      id: modelId,
+      name: fileName,
+      author: author,
+      size: fileSize,
+      downloadUrl: url,
+      filename: fileName,
+      contextSize: 2048,
+      isDownloaded: true,
+      downloadProgress: 100,
+    );
+  }
+
+  /// Load an [OfflineModel] directly into the inference engine.
+  Future<bool> loadModel(OfflineModel model, {int contextSize = 2048, int gpuLayers = 0}) async {
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/${model.author}/${model.filename}');
+    
+    if (!await modelFile.exists()) {
+      throw Exception('Model file does not exist locally at path ${modelFile.path}');
+    }
+
+    return await _aiService.loadModel(
+      modelPath: modelFile.path,
+      model: model.copyWith(contextSize: contextSize),
+    );
+  }
+
+  /// Load a local GGUF model directly from a [File] path into memory.
+  Future<bool> loadFromFile(File modelFile, {OfflineModel? model, int contextSize = 2048, int gpuLayers = 0}) async {
+    if (!await modelFile.exists()) {
+      throw Exception('Model file does not exist at ${modelFile.path}');
+    }
+
+    final filename = modelFile.uri.pathSegments.last;
+    final size = await modelFile.length();
+    final resolvedModel = model ?? OfflineModel(
+      id: filename,
+      name: filename,
+      author: 'local',
+      size: size,
+      filename: filename,
+      contextSize: contextSize,
+      isDownloaded: true,
+      downloadProgress: 100,
+    );
+
+    return await _aiService.loadModel(
+      modelPath: modelFile.path,
+      model: resolvedModel,
+    );
+  }
+
+  /// Checks if a model with the given ID (or filename) is already downloaded locally.
+  Future<bool> isDownloaded(String modelId) async {
+    final model = _lookUpModel(modelId);
+    final filename = model?.filename ?? modelId;
+    final author = model?.author ?? 'Alibaba';
+
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/$author/$filename');
+    if (await modelFile.exists() && (await modelFile.length()) > 1024 * 1024) {
+      return true;
+    }
+
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    return downloadedPaths.any((p) => p.endsWith(filename));
+  }
+
+  /// Returns a list of all models currently downloaded on device.
+  Future<List<OfflineModel>> getDownloadedModels() async {
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    final recommended = DefaultOfflineModels.getMedicalModels();
+    final List<OfflineModel> result = [];
+
+    for (final path in downloadedPaths) {
+      final filename = File(path).uri.pathSegments.last;
+      OfflineModel? match;
+      try {
+        match = recommended.firstWhere((m) => m.filename == filename);
+      } catch (_) {}
+
+      if (match != null) {
+        result.add(match.copyWith(isDownloaded: true, downloadProgress: 100));
+      } else {
+        final file = File(path);
+        final size = await file.length();
+        result.add(OfflineModel(
+          id: filename,
+          name: filename,
+          author: 'local',
+          size: size,
+          filename: filename,
+          isDownloaded: true,
+          downloadProgress: 100,
+        ));
+      }
+    }
+    return result;
+  }
+
+  /// Deletes a cached model from local device storage by model ID or path.
+  Future<void> deleteModel(String modelId) async {
+    final model = _lookUpModel(modelId);
+    final filename = model?.filename ?? modelId;
+
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    for (final path in downloadedPaths) {
+      if (path.endsWith(filename) || path == modelId) {
+        await _downloadService.deleteModel(path);
+        final prefs = await _getPrefsSafely();
+        await prefs?.remove('denizen_last_accessed_$modelId');
+        break;
+      }
     }
   }
 }
@@ -632,6 +790,12 @@ class DenizenSession {
       // If cancelled/failed, we discard the partial reply to protect history cleanliness.
     }
   }
+
+  /// Alias for [chat]. Send a non-streaming message to the model.
+  Future<String> sendMessage(String prompt) => chat(prompt);
+
+  /// Alias for [streamChat]. Send a streaming message to the model.
+  Stream<String> sendMessageStream(String prompt) => streamChat(prompt);
 }
 
 /// A RAG-enabled chat session that automatically intercepts user queries, 

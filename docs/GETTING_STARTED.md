@@ -1,17 +1,24 @@
-# Denizen AI SDK — Getting Started Guide 🚀
+# Denizen AI SDK — v1.0 Release & Getting Started Guide 🚀
 
-Welcome to the **Denizen AI SDK** release! Denizen AI is a privacy-first, on-device multimodal AI engine for Flutter. It lets you run local LLMs, offline document RAG, structured tool calling (with guaranteed JSON schemas), voice consultation, and image analysis 100% offline with zero cloud API fees.
+Welcome to the **Denizen AI SDK (v1.0.0 Release)**! Denizen AI is a privacy-first, on-device AI engine for Flutter. 
+
+The **v1.0.0 Release** focuses strictly on:
+1. 🧠 **Model Downloading & Lifecycle Management**: Chunked resumable downloads, pre-pushed model auto-import, LRU storage eviction, and persistent model residency.
+2. 💬 **Basic Prompting & Streaming Q&A**: Stateful conversation threads, real-time token streaming, sliding context window eviction, and rollback safety.
+
+> 📅 **v2.0.0 Release Roadmap (Coming Next Week)**: Offline Document RAG (PDF vector embeddings), Structured Tool Calling (GBNF JSON constraints), Conversational Voice, and Multimodal Vision.
 
 ---
 
 ## 📋 Table of Contents
 
-- [Key Capabilities](#-key-capabilities)
+- [v1.0 Release Capabilities](#-v10-release-capabilities)
 - [Installation & Setup](#-installation--setup)
 - [Recommended Offline Models](#-recommended-offline-models)
-- [5-Minute Quickstart](#-5-minute-quickstart)
-  - [1. Download & Load a Local GGUF Model](#1-download--load-a-local-gguf-model)
-  - [2. Stream LLM Responses with Context Memory](#2-stream-llm-responses-with-context-memory)
+- [⚡ v1.0 Quickstart Guide](#-v10-quickstart-guide)
+  - [1. Download & Load a Local Model](#1-download--load-a-local-model)
+  - [2. Stream LLM Responses & Chat Memory](#2-stream-llm-responses--chat-memory)
+- [📅 v2.0.0 Roadmap Capabilities (Coming Next Week)](#-v200-roadmap-capabilities-coming-next-week)
   - [3. Offline Document RAG (PDF Vector Search)](#3-offline-document-rag-pdf-vector-search)
   - [4. Guaranteed Structured JSON Output (Tool Calling)](#4-guaranteed-structured-json-output-tool-calling)
   - [5. Hands-Free Conversational Voice Loop](#5-hands-free-conversational-voice-loop)
@@ -21,15 +28,16 @@ Welcome to the **Denizen AI SDK** release! Denizen AI is a privacy-first, on-dev
 
 ---
 
-## ✨ Key Capabilities
+## ✨ Release Scope & Capabilities
 
-| Feature | Description | On-Device Performance |
-|---|---|---|
-| 🧠 **Local LLM Engine** | Accelerated GGUF model execution (Qwen, Llama 3.2, SmolLM2, Phi-3.5) | ~15–40 tokens/sec on mobile CPUs |
-| 🔍 **Vector RAG Engine** | Ingest PDFs & text docs into local SQLite vector storage with TF-Lite embeddings | Zero-latency cosine similarity |
-| 🛠️ **Structured Tool Calling** | Forced JSON output parsing via GBNF context grammars | 100% schema validation accuracy |
-| 🎙️ **Conversational Voice** | Offline STT (Whisper) + LLM inference + TTS (Piper/eSpeak) loop | Hands-free audio consultation |
-| 👁️ **Multimodal Vision** | Analyze images on-device using quantized MobileVLM / LLaVA GGUF models | Instant local diagnosis |
+| Feature | Release | Status | Description |
+|---|---|---|---|
+| 🧠 **Model Downloading & Lifecycle** | **v1.0 (Today)** | 🟢 **Production Core** | Resumable chunked GGUF downloading, pre-pushed import, LRU storage eviction, and memory loading. |
+| 💬 **Basic Prompting & Streaming Q&A** | **v1.0 (Today)** | 🟢 **Production Core** | Stateful chat sessions, real-time token streaming, sliding context eviction, and overflow rollback. |
+| 🔍 **Vector RAG Engine** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | Ingest PDFs & text docs into local SQLite vector storage with TF-Lite embeddings for local Q&A. |
+| 🛠️ **Structured Tool Calling** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | Forced JSON output parsing via GBNF context grammars. |
+| 🎙️ **Conversational Voice** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | Offline STT (Whisper) + LLM inference + TTS (Piper/eSpeak) loop. |
+| 👁️ **Multimodal Vision** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | Analyze local images on-device using quantized MobileVLM / LLaVA models. |
 
 ---
 
@@ -63,21 +71,21 @@ flutter pub get
 
 Denizen AI supports any standard `.gguf` quantized model (Q4_K_M recommended for mobile). Here are our pre-tested recommendations:
 
-| Model Name | Size | RAM Required | Best Use Case | Direct Download Link |
-|---|---|---|---|---|
-| **SmolLM2 360M Instruct** | 228 MB | ~0.5 GB | Instant testing / Low-end phones | [Download GGUF](https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf) |
-| **Qwen2.5 0.5B Instruct** | 398 MB | ~0.8 GB | Ultra-fast mobile Q&A (Recommended) | [Download GGUF](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf) |
-| **Llama 3.2 1B Instruct** | 758 MB | ~1.5 GB | Balanced general & instruction follow | [Download GGUF](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf) |
-| **Qwen2.5 1.5B Instruct** | 980 MB | ~1.8 GB | High reasoning power | [Download GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf) |
-| **Phi-3.5 Mini 3.8B** | 2.39 GB | ~4.5 GB | High-RAM Android / Windows Desktop | [Download GGUF](https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf) |
+| Model Name | Model ID | Size | RAM Required | Best Use Case | Direct Download Link |
+|---|---|---|---|---|---|
+| **SmolLM2 360M Instruct** | `smollm2-360m` | 228 MB | ~0.5 GB | Instant testing / Low-end phones | [Download GGUF](https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf) |
+| **Qwen2.5 0.5B Instruct** | `qwen2.5-0.5b` | 398 MB | ~0.8 GB | Ultra-fast mobile Q&A (Recommended) | [Download GGUF](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf) |
+| **Llama 3.2 1B Instruct** | `llama-3.2-1b` | 758 MB | ~1.5 GB | Balanced general & instruction follow | [Download GGUF](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf) |
+| **Qwen2.5 1.5B Instruct** | `qwen2.5-1.5b` | 980 MB | ~1.8 GB | High reasoning power | [Download GGUF](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf) |
+| **Phi-3.5 Mini 3.8B** | `phi-3.5-mini` | 2.39 GB | ~4.5 GB | High-RAM Android / Windows Desktop | [Download GGUF](https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf) |
 
 ---
 
-## ⚡ 5-Minute Quickstart
+## ⚡ v1.0 Quickstart Guide
 
-### 1. Download & Load a Local GGUF Model
+### 1. Download & Load a Local Model
 
-Denizen includes a built-in chunked, resumable downloader with SHA-256 integrity verification:
+Denizen AI manages downloading, checking local storage, auto-importing pre-pushed files from `/data/local/tmp` or `/sdcard/Download`, LRU storage eviction, and memory loading:
 
 ```dart
 import 'package:denizen_ai/denizen_ai.dart';
@@ -85,34 +93,44 @@ import 'package:denizen_ai/denizen_ai.dart';
 Future<void> prepareModel() async {
   final sdk = DenizenAI();
 
-  // 1. Download model directly to mobile local storage
-  final model = await sdk.models.downloadModel(
-    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
-    modelId: 'qwen2.5-0.5b',
-    fileName: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+  // Load a model by shorthand ID (auto-downloads if not present on device)
+  await sdk.models.load(
+    'qwen2.5-0.5b',
     onProgress: (progress) {
-      print('Download progress: ${(progress * 100).toStringAsFixed(1)}%');
+      print('Download progress: ${progress.percent.toStringAsFixed(1)}% (${(progress.bytesDownloaded / 1024 / 1024).toStringAsFixed(1)} MB)');
     },
-  );
-
-  // 2. Load model into memory
-  await sdk.models.loadModel(
-    model,
-    contextSize: 2048,
-    gpuLayers: 0, // Set > 0 for GPU acceleration if available
   );
 
   print('✅ Denizen AI Engine loaded and ready offline!');
 }
 ```
 
+Or load a local `.gguf` file directly:
+```dart
+import 'dart:io';
+import 'package:denizen_ai/denizen_ai.dart';
+
+Future<void> loadCustomFile(String ggufFilePath) async {
+  final sdk = DenizenAI();
+  final file = File(ggufFilePath);
+
+  await sdk.models.loadFromFile(
+    file,
+    contextSize: 2048,
+  );
+  
+  print('✅ Custom model loaded successfully!');
+}
+```
+
 ---
 
-### 2. Stream LLM Responses with Context Memory
+### 2. Stream LLM Responses & Chat Memory
 
 Manage conversation history and context windows automatically using `DenizenSession`:
 
 ```dart
+import 'dart:io';
 import 'package:denizen_ai/denizen_ai.dart';
 
 Future<void> runChat() async {
@@ -131,10 +149,13 @@ Future<void> runChat() async {
     // Print each token as it is generated by the local engine
     stdout.write(token);
   }
+  print('');
 }
 ```
 
 ---
+
+## 📅 v2.0.0 Roadmap Capabilities (Coming Next Week)
 
 ### 3. Offline Document RAG (PDF Vector Search)
 

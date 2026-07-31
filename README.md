@@ -5,15 +5,16 @@
 
 ---
 
-## 📊 Feature Matrix & Readiness Status
+## 📊 Feature Matrix & Release Roadmap
 
-| Feature | Status | Details |
-|---|---|---|
-| 🧠 **Local LLM Engine** | 🟢 **Fully Functional** | Accelerated GGUF inference (`Llama 3.2`, `Phi-3.5`, `Qwen 2.5`, `Mistral`) via pre-compiled native C++ engine. |
-| 🔍 **Vector RAG Engine** | 🟢 **Fully Functional** | TF-Lite embedding extraction + `sqlite-vec` local vector database for document Q&A. |
-| 🛠️ **Structured Tool Calling** | 🟢 **Fully Functional** | Parallel execution loops with dynamic GBNF grammar constraints guaranteeing JSON outputs. |
-| 🎙️ **Conversational Voice** | 🟢 **Fully Functional** | Real-time offline Speech-to-Text (STT) and Text-to-Speech (TTS) session handling. |
-| 👁️ **Multimodal Vision** | 🟡 **Early Access / API Stub** | `DenizenVisionSession` Dart API class & showcase UI ready; full C++ `clip.h` projector integration in v2. |
+| Feature | Release | Status | Details |
+|---|---|---|---|
+| 🧠 **Model Download & Lifecycle Management** | **v1.0 (Today)** | 🟢 **Production Ready** | Resumable chunked GGUF downloading, pre-pushed import, LRU storage eviction, and memory management. |
+| 💬 **Basic Prompting & Streaming Q&A** | **v1.0 (Today)** | 🟢 **Production Ready** | Stateful chat sessions (`DenizenSession`), token streaming, sliding context window eviction, and rollback safety. |
+| 🔍 **Offline Vector RAG Engine** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | TF-Lite embedding extraction + `sqlite-vec` local vector database for PDF document reasoning. |
+| 🛠️ **Structured Tool Calling** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | GBNF context grammar constraints for guaranteed JSON function calling. |
+| 🎙️ **Conversational Voice** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | Real-time offline Speech-to-Text (Whisper) + Text-to-Speech (TTS) loop. |
+| 👁️ **Multimodal Vision** | **v2.0 (Next Week)** | 🟡 **Targeting v2.0** | LLaVA / MobileVLM local image analysis. |
 
 ---
 
