@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:denizen_ai/denizen_ai.dart';
@@ -332,6 +333,84 @@ class _ChatTabState extends State<ChatTab> {
 
 enum DocCategory { all, pdf, docx, txt, custom }
 
+class _ParsePayload {
+  final List<int> bytes;
+  final String ext;
+  _ParsePayload(this.bytes, this.ext);
+}
+
+/// Offloads file reading, regex parsing, text extraction, and chunking to a background Isolate thread.
+/// Keeps the Flutter UI thread running buttery smooth at 60 FPS without hanging or freezing!
+List<String> _extractAndChunkInBackground(_ParsePayload payload) {
+  final bytes = payload.bytes;
+  final ext = payload.ext;
+
+  String text = "";
+  if (ext == 'pdf') {
+    final raw = String.fromCharCodes(bytes);
+    final sb = StringBuffer();
+    final tjRegex = RegExp(r'\(([^)]+)\)\s*Tj');
+    for (final m in tjRegex.allMatches(raw)) {
+      final g = m.group(1);
+      if (g != null && g.trim().length > 1) {
+        sb.writeln(g.trim());
+      }
+    }
+    if (sb.length < 50) {
+      final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
+      for (final m in asciiRegex.allMatches(raw)) {
+        final s = m.group(0)!.trim();
+        if (s.length >= 4 &&
+            !s.startsWith('/Font') &&
+            !s.startsWith('/Type') &&
+            !s.startsWith('/Catalog') &&
+            !s.startsWith('/Pages')) {
+          sb.writeln(s);
+        }
+      }
+    }
+    text = sb.toString();
+  } else {
+    try {
+      text = String.fromCharCodes(bytes).trim();
+    } catch (_) {
+      final raw = String.fromCharCodes(bytes);
+      final sb = StringBuffer();
+      final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
+      for (final m in asciiRegex.allMatches(raw)) {
+        final s = m.group(0)!.trim();
+        if (s.length >= 4 &&
+            !s.startsWith('/Font') &&
+            !s.startsWith('/Type') &&
+            !s.startsWith('/Catalog') &&
+            !s.startsWith('/Pages')) {
+          sb.writeln(s);
+        }
+      }
+      text = sb.toString();
+    }
+  }
+
+  if (text.trim().isEmpty) return [];
+
+  // Fast 150-word sliding window chunking
+  final words = text.split(RegExp(r'\s+'));
+  final List<String> chunks = [];
+  int start = 0;
+  const size = 150;
+  const overlap = 25;
+
+  while (start < words.length) {
+    final end = (start + size).clamp(0, words.length);
+    chunks.add(words.sublist(start, end).join(' '));
+    if (end == words.length) break;
+    start += size - overlap;
+    if (chunks.length >= 100) break; // Limit to 100 max chunks for safety
+  }
+
+  return chunks;
+}
+
 /// One ingested document held entirely in memory — same as Ubuntu Elimu Document model.
 class _DocEntry {
   final String id;
@@ -405,90 +484,7 @@ class _RagTabState extends State<RagTab> {
   bool _isIngesting = false;
   bool _isGenerating = false;
 
-  // ── Text extraction (same as Ubuntu Elimu's _extractText) ─────────────────
-
-  String _extractText(List<int> bytes, String ext) {
-    if (ext == 'pdf') return _extractPdfText(bytes);
-    try {
-      return String.fromCharCodes(bytes).trim();
-    } catch (_) {
-      return _extractPrintable(bytes);
-    }
-  }
-
-  String _extractPdfText(List<int> bytes) {
-    final raw = String.fromCharCodes(bytes);
-    final sb = StringBuffer();
-    for (final m in RegExp(r'\(([^)]+)\)\s*Tj', multiLine: true).allMatches(raw)) {
-      final g = m.group(1);
-      if (g != null && g.trim().length > 1) sb.writeln(g.trim());
-    }
-    for (final m in RegExp(r'\[(((?:\([^)]+\)\s*|-?\d+\s*))+)\]\s*TJ', multiLine: true).allMatches(raw)) {
-      for (final inner in RegExp(r'\(([^)]+)\)').allMatches(m.group(1) ?? '')) {
-        final t = inner.group(1);
-        if (t != null && t.trim().isNotEmpty) { sb.write(t.trim()); sb.write(' '); }
-      }
-      sb.writeln();
-    }
-    if (sb.length < 50) return _extractPrintable(bytes);
-    return sb.toString();
-  }
-
-  String _extractPrintable(List<int> bytes) {
-    final raw = String.fromCharCodes(bytes);
-    final sb = StringBuffer();
-    for (final m in RegExp(r'[A-Za-z0-9\s.,!?:;()\-]{4,}').allMatches(raw)) {
-      final s = m.group(0)!.trim();
-      if (s.length >= 4 && !s.startsWith('/Font') && !s.startsWith('/Type') &&
-          !s.startsWith('/Catalog') && !s.startsWith('/Pages')) {
-        sb.writeln(s);
-      }
-    }
-    return sb.toString();
-  }
-
-  // ── Chunking (150-word sliding window, fits in 2048 token budget) ──────────────
-
-  List<String> _chunk(String text, {int size = 150, int overlap = 25}) {
-    final words = text.split(RegExp(r'\s+'));
-    final chunks = <String>[];
-    int start = 0;
-    while (start < words.length) {
-      final end = (start + size).clamp(0, words.length);
-      chunks.add(words.sublist(start, end).join(' '));
-      if (end == words.length) break;
-      start += size - overlap;
-    }
-    return chunks;
-  }
-
-  // ── Retrieval (keyword-score, same as Ubuntu Elimu's getRelevantChunks) ───
-
-  List<String> _getRelevantChunks(String docId, String query, {int topK = 3}) {
-    final doc = _docs.where((d) => d.id == docId).firstOrNull;
-    if (doc == null || doc.chunks.isEmpty) return [];
-    final qWords = query.toLowerCase().split(RegExp(r'\s+'));
-    final scored = doc.chunks.map((c) {
-      final lower = c.toLowerCase();
-      return MapEntry(c, qWords.where((w) => lower.contains(w)).length);
-    }).toList()..sort((a, b) => b.value.compareTo(a.value));
-    return scored.take(topK).map((e) => e.key).toList();
-  }
-
-  List<String> _getChunksAllDocs(String query, {int topK = 3}) {
-    if (_docs.isEmpty) return [];
-    final all = <MapEntry<String, int>>[];
-    for (final doc in _docs) {
-      final qWords = query.toLowerCase().split(RegExp(r'\s+'));
-      for (final c in doc.chunks) {
-        all.add(MapEntry(c, qWords.where((w) => c.toLowerCase().contains(w)).length));
-      }
-    }
-    all.sort((a, b) => b.value.compareTo(a.value));
-    return all.take(topK).map((e) => e.key).toList();
-  }
-
-  // ── File picker ──────────────────────────────────────────────────────────────
+  // ── Background Isolate Text Extraction & Chunking ──────────────────────────
 
   Future<void> _pickAndIngest() async {
     try {
@@ -514,10 +510,11 @@ class _RagTabState extends State<RagTab> {
         throw Exception("Could not read file.");
       }
 
-      final rawText = _extractText(bytes, ext);
-      if (rawText.trim().isEmpty) throw Exception("No readable text found in '$name'.");
+      // Offload text extraction and chunking to background Isolate thread (compute)
+      // This keeps Flutter UI thread 60 FPS smooth without freezing or hanging!
+      final chunks = await compute(_extractAndChunkInBackground, _ParsePayload(bytes, ext));
+      if (chunks.isEmpty) throw Exception("No readable text found in '$name'.");
 
-      final chunks = _chunk(rawText);
       DocCategory cat = DocCategory.txt;
       if (ext == 'pdf') cat = DocCategory.pdf;
       if (ext == 'docx' || ext == 'doc') cat = DocCategory.docx;
