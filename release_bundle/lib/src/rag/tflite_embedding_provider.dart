@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:denizen_ai/src/rag/embedding_provider.dart';
 import 'package:denizen_ai/src/rag/word_piece_tokenizer.dart';
@@ -11,6 +12,8 @@ class TFLiteEmbeddingProvider implements EmbeddingProvider {
   
   Interpreter? _interpreter;
   final WordPieceTokenizer _tokenizer = WordPieceTokenizer();
+  final FastHashEmbeddingProvider _fallback = FastHashEmbeddingProvider();
+  bool _useFallback = false;
   
   // all-MiniLM-L6-v2 outputs 384-dimensional vectors.
   @override
@@ -23,9 +26,13 @@ class TFLiteEmbeddingProvider implements EmbeddingProvider {
 
   @override
   Future<void> initialize() async {
-    await _tokenizer.loadVocab(vocabPath);
-    
-    _interpreter = await Interpreter.fromAsset(modelPath);
+    try {
+      await _tokenizer.loadVocab(vocabPath);
+      _interpreter = await Interpreter.fromAsset(modelPath);
+    } catch (e) {
+      debugPrint('⚠️ TFLite embedding provider initialization failed ($e). Using FastHash embedding fallback.');
+      _useFallback = true;
+    }
   }
 
   @override
@@ -36,9 +43,11 @@ class TFLiteEmbeddingProvider implements EmbeddingProvider {
 
   @override
   Future<List<double>> embed(String text) async {
-    if (_interpreter == null) {
-      throw StateError('TFLiteEmbeddingProvider not initialized.');
+    if (_useFallback || _interpreter == null) {
+      return _fallback.embed(text);
     }
+
+    try {
 
     // 1. Tokenize
     final maxLen = 128; // Fixed: must match the model's expected sequence length
@@ -106,12 +115,17 @@ class TFLiteEmbeddingProvider implements EmbeddingProvider {
 
     // 5. L2 Normalize
     return _l2Normalize(finalEmbedding);
+    } catch (e) {
+      debugPrint('⚠️ TFLite embed error ($e). Falling back to FastHash vector.');
+      return _fallback.embed(text);
+    }
   }
 
   @override
   Future<List<List<double>>> embedBatch(List<String> texts) async {
-    // Basic implementation: sequential.
-    // For production, batching would be better if the model supports it.
+    if (_useFallback || _interpreter == null) {
+      return _fallback.embedBatch(texts);
+    }
     final List<List<double>> results = [];
     for (var text in texts) {
       results.add(await embed(text));

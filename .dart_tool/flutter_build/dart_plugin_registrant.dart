@@ -18,6 +18,7 @@ import 'package:path_provider_foundation/path_provider_foundation.dart';
 import 'package:shared_preferences_foundation/shared_preferences_foundation.dart';
 import 'package:path_provider_windows/path_provider_windows.dart';
 import 'package:shared_preferences_windows/shared_preferences_windows.dart';
+import 'package:speech_to_text_windows/speech_to_text_windows.dart';
 
 @pragma('vm:entry-point')
 class _PluginRegistrant {
@@ -133,6 +134,15 @@ class _PluginRegistrant {
       } catch (err) {
         print(
           '`shared_preferences_windows` threw an error: $err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+      try {
+        SpeechToTextWindows.registerWith();
+      } catch (err) {
+        print(
+          '`speech_to_text_windows` threw an error: $err. '
           'The app may not function as expected until you remove this plugin from pubspec.yaml'
         );
       }

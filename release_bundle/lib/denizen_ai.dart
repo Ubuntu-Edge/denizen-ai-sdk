@@ -26,10 +26,14 @@ export 'src/tools/denizen_tool_registry.dart';
 export 'src/tools/denizen_tool_session.dart';
 export 'src/vision/denizen_vision_session.dart';
 export 'src/audio/denizen_voice_session.dart';
+export 'src/audio/offline_audio_service.dart';
 export 'src/rag/embedding_provider.dart';
 export 'src/rag/tflite_embedding_provider.dart';
 export 'src/rag/vector_storage_service.dart';
 export 'src/rag/document_ingestion_service.dart';
+export 'src/models/offline_model.dart';
+export 'src/models/default_offline_models.dart';
+export 'src/services/model_download_service.dart';
 
 
 /// The core entry point for the Denizen AI SDK.
@@ -215,11 +219,20 @@ class DenizenModelManager {
 
   DenizenModelManager(this._downloadService, this._aiService);
 
-  /// Look up model from recommendations
+  /// Look up model from recommendations by ID, shorthand ID, or filename
   OfflineModel? _lookUpModel(String modelId) {
     try {
       final recommended = DefaultOfflineModels.getMedicalModels();
-      return recommended.firstWhere((m) => m.id == modelId);
+      final idLower = modelId.toLowerCase().trim();
+      return recommended.firstWhere((m) {
+        final mIdLower = m.id.toLowerCase();
+        final mIdBase = mIdLower.replaceAll('-q4', '');
+        final fnLower = (m.filename ?? '').toLowerCase();
+        return mIdLower == idLower ||
+            mIdBase == idLower ||
+            fnLower == idLower ||
+            fnLower == '$idLower.gguf';
+      });
     } catch (_) {
       return null;
     }
@@ -419,6 +432,155 @@ class DenizenModelManager {
       throw Exception('Failed to load model into inference engine.');
     }
   }
+
+  /// Download a model directly from a custom URL with progress tracking.
+  Future<OfflineModel> downloadModel({
+    required String url,
+    required String modelId,
+    required String fileName,
+    String author = 'custom',
+    void Function(DenizenDownloadProgress progress)? onProgress,
+  }) async {
+    final downloadStream = _downloadService.downloadModel(
+      url: url,
+      modelId: modelId,
+      fileName: fileName,
+      author: author,
+    );
+
+    await for (final downloadProgress in downloadStream) {
+      if (downloadProgress.stage == ModelDownloadStage.failed) {
+        throw Exception('Download failed: ${downloadProgress.error}');
+      }
+      if (onProgress != null) {
+        onProgress(DenizenDownloadProgress(
+          progress: downloadProgress.progress / 100.0,
+          bytesDownloaded: downloadProgress.downloadedBytes ?? 0,
+          totalBytes: downloadProgress.totalBytes ?? 0,
+        ));
+      }
+    }
+
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/$author/$fileName');
+    final fileSize = await modelFile.exists() ? await modelFile.length() : 0;
+
+    return OfflineModel(
+      id: modelId,
+      name: fileName,
+      author: author,
+      size: fileSize,
+      downloadUrl: url,
+      filename: fileName,
+      contextSize: 2048,
+      isDownloaded: true,
+      downloadProgress: 100,
+    );
+  }
+
+  /// Load an [OfflineModel] directly into the inference engine.
+  Future<bool> loadModel(OfflineModel model, {int contextSize = 2048, int gpuLayers = 0}) async {
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/${model.author}/${model.filename}');
+    
+    if (!await modelFile.exists()) {
+      throw Exception('Model file does not exist locally at path ${modelFile.path}');
+    }
+
+    return await _aiService.loadModel(
+      modelPath: modelFile.path,
+      model: model.copyWith(contextSize: contextSize),
+    );
+  }
+
+  /// Load a local GGUF model directly from a [File] path into memory.
+  Future<bool> loadFromFile(File modelFile, {OfflineModel? model, int contextSize = 2048, int gpuLayers = 0}) async {
+    if (!await modelFile.exists()) {
+      throw Exception('Model file does not exist at ${modelFile.path}');
+    }
+
+    final filename = modelFile.uri.pathSegments.last;
+    final size = await modelFile.length();
+    final resolvedModel = model ?? OfflineModel(
+      id: filename,
+      name: filename,
+      author: 'local',
+      size: size,
+      filename: filename,
+      contextSize: contextSize,
+      isDownloaded: true,
+      downloadProgress: 100,
+    );
+
+    return await _aiService.loadModel(
+      modelPath: modelFile.path,
+      model: resolvedModel,
+    );
+  }
+
+  /// Checks if a model with the given ID (or filename) is already downloaded locally.
+  Future<bool> isDownloaded(String modelId) async {
+    final model = _lookUpModel(modelId);
+    final filename = model?.filename ?? modelId;
+    final author = model?.author ?? 'Alibaba';
+
+    final storageDir = await _downloadService.getModelStorageDirectory();
+    final modelFile = File('${storageDir.path}/models/$author/$filename');
+    if (await modelFile.exists() && (await modelFile.length()) > 1024 * 1024) {
+      return true;
+    }
+
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    return downloadedPaths.any((p) => p.endsWith(filename));
+  }
+
+  /// Returns a list of all models currently downloaded on device.
+  Future<List<OfflineModel>> getDownloadedModels() async {
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    final recommended = DefaultOfflineModels.getMedicalModels();
+    final List<OfflineModel> result = [];
+
+    for (final path in downloadedPaths) {
+      final filename = File(path).uri.pathSegments.last;
+      OfflineModel? match;
+      try {
+        match = recommended.firstWhere((m) => m.filename == filename);
+      } catch (_) {}
+
+      if (match != null) {
+        result.add(match.copyWith(isDownloaded: true, downloadProgress: 100));
+      } else {
+        final file = File(path);
+        final size = await file.length();
+        result.add(OfflineModel(
+          id: filename,
+          name: filename,
+          author: 'local',
+          size: size,
+          filename: filename,
+          isDownloaded: true,
+          downloadProgress: 100,
+        ));
+      }
+    }
+    return result;
+  }
+
+  /// Deletes a cached model from local device storage by model ID or path.
+  Future<void> deleteModel(String modelId) async {
+    final model = _lookUpModel(modelId);
+    final filename = model?.filename ?? modelId;
+
+    final downloadedPaths = await _downloadService.getDownloadedModelPaths();
+    for (final path in downloadedPaths) {
+      if (path.endsWith(filename) || path == modelId) {
+        await _downloadService.deleteModel(path);
+        final prefs = await _getPrefsSafely();
+        await prefs?.remove('denizen_last_accessed_$modelId');
+        break;
+      }
+    }
+  }
 }
 
 /// Exception thrown when the prompt or history exceeds the context budget.
@@ -453,6 +615,10 @@ class DenizenSession {
   final OfflineAIService _aiService;
   final List<DenizenMessage> _history = [];
   final int? _maxTokensOverride;
+
+  /// Sequential queue to ensure chat turns execute in strict FIFO order
+  @protected
+  final AsyncSequentialQueue sessionQueue = AsyncSequentialQueue();
 
   /// Get the current message history in this session.
   List<DenizenMessage> get history => List.unmodifiable(_history);
@@ -557,8 +723,9 @@ class DenizenSession {
     )).toList();
   }
 
-  /// Send a non-streaming message to the model within this session.
-  Future<String> chat(String prompt) async {
+  /// Internal non-streaming turn execution (protected for subclasses).
+  @protected
+  Future<String> chatInternal(String prompt) async {
     final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
     _history.add(userMessage);
 
@@ -587,8 +754,9 @@ class DenizenSession {
     }
   }
 
-  /// Send a streaming message to the model within this session.
-  Stream<String> streamChat(String prompt) async* {
+  /// Internal streaming turn execution (protected for subclasses).
+  @protected
+  Stream<String> streamChatInternal(String prompt) async* {
     final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
     _history.add(userMessage);
 
@@ -628,6 +796,22 @@ class DenizenSession {
       // If cancelled/failed, we discard the partial reply to protect history cleanliness.
     }
   }
+
+  /// Send a non-streaming message to the model within this session.
+  Future<String> chat(String prompt) {
+    return sessionQueue.run(() => chatInternal(prompt));
+  }
+
+  /// Send a streaming message to the model within this session.
+  Stream<String> streamChat(String prompt) {
+    return sessionQueue.runStream(() => streamChatInternal(prompt));
+  }
+
+  /// Alias for [chat]. Send a non-streaming message to the model.
+  Future<String> sendMessage(String prompt) => chat(prompt);
+
+  /// Alias for [streamChat]. Send a streaming message to the model.
+  Stream<String> sendMessageStream(String prompt) => streamChat(prompt);
 }
 
 /// A RAG-enabled chat session that automatically intercepts user queries, 
@@ -644,71 +828,98 @@ class DenizenRagSession extends DenizenSession {
     this._storageService, {
     String? baseSystemPrompt,
     super.maxTokens,
-  }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful assistant.',
-       super(systemPrompt: baseSystemPrompt ?? 'You are a helpful assistant.');
+  }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful AI assistant.',
+       super(systemPrompt: baseSystemPrompt ?? 'You are a helpful AI assistant.');
 
-  /// Injects the retrieved chunks into the system prompt context.
-  void _injectKnowledge(List<Map<String, dynamic>> chunks) {
-    if (chunks.isEmpty) return;
+  /// Injects raw text chunks or retrieved vector maps into system prompt context
+  void injectKnowledgeText(List<String> rawChunks, {String? basePrompt}) {
+    if (rawChunks.isEmpty) return;
 
     final StringBuffer knowledgeBuffer = StringBuffer();
-    knowledgeBuffer.writeln(_baseSystemPrompt);
-    knowledgeBuffer.writeln('\nUse the following retrieved context to answer the user:');
+    knowledgeBuffer.writeln(basePrompt ?? _baseSystemPrompt);
+    knowledgeBuffer.writeln('\n[CRITICAL CONTEXT DOCUMENTS]');
+    knowledgeBuffer.writeln('Use the following retrieved document material as your knowledge base to answer the user question:');
     
-    for (var i = 0; i < chunks.length; i++) {
-      knowledgeBuffer.writeln('\n--- Document Snippet ${i + 1} ---');
-      knowledgeBuffer.writeln(chunks[i]['text_content']);
+    for (var i = 0; i < rawChunks.length; i++) {
+      knowledgeBuffer.writeln('\n--- Context Snippet ${i + 1} ---');
+      knowledgeBuffer.writeln(rawChunks[i]);
     }
+    knowledgeBuffer.writeln('\n[INSTRUCTION]: Answer the user question directly using ONLY the above context. If the answer is present in the context, state it clearly.');
 
-    // Replace the system prompt (which is always at index 0)
     if (_history.isNotEmpty && _history.first.role == DenizenRole.system) {
       _history[0] = DenizenMessage(
         role: DenizenRole.system,
         content: knowledgeBuffer.toString(),
       );
+    } else {
+      _history.insert(0, DenizenMessage(
+        role: DenizenRole.system,
+        content: knowledgeBuffer.toString(),
+      ));
     }
   }
 
-  @override
-  Future<String> chat(String prompt) async {
-    // 1. Embed the user prompt
-    final queryEmbedding = await _embeddingProvider.embed(prompt);
-    
-    // 2. Retrieve relevant chunks (using background orchestrator if available)
-    final orchestrator = DenizenOrchestrator();
-    List<Map<String, dynamic>> chunks;
-    if (orchestrator.isReady) {
-      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-    } else {
-      chunks = _storageService.search(queryEmbedding, limit: 3);
-    }
-    
-    // 3. Inject into context
-    _injectKnowledge(chunks);
-
-    // 4. Proceed with standard chat
-    return super.chat(prompt);
+  void _injectKnowledge(List<Map<String, dynamic>> chunks) {
+    final rawText = chunks
+        .map((c) => c['text_content']?.toString() ?? '')
+        .where((t) => t.trim().isNotEmpty)
+        .toList();
+    injectKnowledgeText(rawText);
   }
 
   @override
-  Stream<String> streamChat(String prompt) async* {
-    // 1. Embed the user prompt
-    final queryEmbedding = await _embeddingProvider.embed(prompt);
-    
-    // 2. Retrieve relevant chunks (using background orchestrator if available)
-    final orchestrator = DenizenOrchestrator();
-    List<Map<String, dynamic>> chunks;
-    if (orchestrator.isReady) {
-      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-    } else {
-      chunks = _storageService.search(queryEmbedding, limit: 3);
-    }
-    
-    // 3. Inject into context
-    _injectKnowledge(chunks);
+  Future<String> chat(String prompt, {int? docId, List<String>? directChunks}) {
+    return sessionQueue.run(() async {
+      if (directChunks != null && directChunks.isNotEmpty) {
+        injectKnowledgeText(directChunks);
+        return chatInternal(prompt);
+      }
 
-    // 4. Proceed with standard streaming chat
-    yield* super.streamChat(prompt);
+      List<Map<String, dynamic>> chunks = [];
+      try {
+        final queryEmbedding = await _embeddingProvider.embed(prompt);
+        if (_storageService.isInitialized) {
+          chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+        if (chunks.isEmpty) {
+          chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
+        }
+      } catch (e) {
+        debugPrint('⚠️ RAG retrieval failed: $e. Using direct database fallback.');
+        chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
+      }
+      
+      _injectKnowledge(chunks);
+      return chatInternal(prompt);
+    });
+  }
+
+  @override
+  Stream<String> streamChat(String prompt, {int? docId, List<String>? directChunks}) {
+    return sessionQueue.runStream(() async* {
+      if (directChunks != null && directChunks.isNotEmpty) {
+        injectKnowledgeText(directChunks);
+        yield* streamChatInternal(prompt);
+        return;
+      }
+
+      List<Map<String, dynamic>> chunks = [];
+      try {
+        final queryEmbedding = await _embeddingProvider.embed(prompt);
+        if (_storageService.isInitialized) {
+          chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+        if (chunks.isEmpty) {
+          chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
+        }
+      } catch (e) {
+        debugPrint('⚠️ RAG retrieval failed: $e. Using direct database fallback.');
+        chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
+      }
+      
+      _injectKnowledge(chunks);
+      yield* streamChatInternal(prompt);
+    });
   }
 }
 

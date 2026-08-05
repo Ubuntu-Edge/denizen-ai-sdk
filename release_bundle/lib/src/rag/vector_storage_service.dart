@@ -28,7 +28,17 @@ class VectorStorageService {
     // Load sqlite-vec extension via FFI
     final DynamicLibrary lib;
     if (Platform.isAndroid) {
-      lib = DynamicLibrary.open('libsqlite_vec.so');
+      DynamicLibrary? openedLib;
+      try {
+        openedLib = DynamicLibrary.open('libsqlite_vec.so');
+      } catch (_) {
+        try {
+          openedLib = DynamicLibrary.open('sqlite_vec');
+        } catch (_) {
+          openedLib = DynamicLibrary.process();
+        }
+      }
+      lib = openedLib;
     } else if (Platform.isWindows) {
       // Look for the pre-downloaded dll in multiple potential locations
       final possiblePaths = [
@@ -82,6 +92,29 @@ class VectorStorageService {
         embedding float[384]
       );
     ''');
+  }
+
+  /// Inserts a document record and returns its docId
+  int insertDocument(String title, {String? sourceUri}) {
+    if (_db == null) throw Exception("VectorStorageService not initialized");
+    final stmt = _db!.prepare('''
+      INSERT INTO documents (title, source_uri, ingested_at)
+      VALUES (?, ?, ?)
+    ''');
+    stmt.execute([title, sourceUri ?? '', DateTime.now().millisecondsSinceEpoch]);
+    final docId = _db!.lastInsertRowId;
+    stmt.dispose();
+    return docId;
+  }
+
+  /// Deletes a document and all its corresponding chunks and vectors
+  void deleteDocument(int docId) {
+    if (_db == null) return;
+    try {
+      _db!.execute('DELETE FROM vec_chunks WHERE rowid IN (SELECT chunk_id FROM document_chunks WHERE doc_id = ?)', [docId]);
+      _db!.execute('DELETE FROM document_chunks WHERE doc_id = ?', [docId]);
+      _db!.execute('DELETE FROM documents WHERE id = ?', [docId]);
+    } catch (_) {}
   }
 
   /// Inserts a chunk and its corresponding embedding.
@@ -143,6 +176,30 @@ class VectorStorageService {
     }
     
     return results;
+  }
+
+  /// Fetches text chunks directly from the SQLite database.
+  /// If docId is specified, fetches chunks for that document; otherwise returns recent chunks.
+  List<Map<String, dynamic>> getChunksForDocument({int? docId, int limit = 10}) {
+    if (_db == null) return [];
+
+    try {
+      final String query = docId != null
+          ? 'SELECT chunk_id, doc_id, text_content FROM document_chunks WHERE doc_id = ? ORDER BY chunk_index ASC LIMIT ?'
+          : 'SELECT chunk_id, doc_id, text_content FROM document_chunks ORDER BY chunk_id DESC LIMIT ?';
+
+      final stmt = _db!.prepare(query);
+      final resultSet = docId != null ? stmt.select([docId, limit]) : stmt.select([limit]);
+      stmt.dispose();
+
+      return resultSet.map((row) => {
+        'chunk_id': row['chunk_id'],
+        'doc_id': row['doc_id'],
+        'text_content': row['text_content'],
+      }).toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   /// Safely exports the current database to a specified destination path.

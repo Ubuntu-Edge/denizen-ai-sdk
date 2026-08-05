@@ -32,7 +32,9 @@ class DenizenVoiceSession {
     required Function(String text) onResult,
   }) async {
     _isRecording = true;
-    await OfflineAudioService.instance.startListening(onResult: onResult);
+    await OfflineAudioService.instance.startListening(
+      onResult: (text, isFinal) => onResult(text),
+    );
   }
 
   /// Stop live system speech recognition
