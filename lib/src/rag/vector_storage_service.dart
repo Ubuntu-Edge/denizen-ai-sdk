@@ -28,7 +28,17 @@ class VectorStorageService {
     // Load sqlite-vec extension via FFI
     final DynamicLibrary lib;
     if (Platform.isAndroid) {
-      lib = DynamicLibrary.open('libsqlite_vec.so');
+      DynamicLibrary? openedLib;
+      try {
+        openedLib = DynamicLibrary.open('libsqlite_vec.so');
+      } catch (_) {
+        try {
+          openedLib = DynamicLibrary.open('sqlite_vec');
+        } catch (_) {
+          openedLib = DynamicLibrary.process();
+        }
+      }
+      lib = openedLib;
     } else if (Platform.isWindows) {
       // Look for the pre-downloaded dll in multiple potential locations
       final possiblePaths = [
