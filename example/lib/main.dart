@@ -1,8 +1,9 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:denizen_ai/denizen_ai.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -406,49 +407,22 @@ class _RagTabState extends State<RagTab> {
   List<String> _extractAndChunkFast(List<int> bytes, String ext) {
     String text = "";
     if (ext == 'pdf') {
-      final raw = String.fromCharCodes(bytes);
-      final sb = StringBuffer();
-      final tjRegex = RegExp(r'\(([^)]+)\)\s*Tj');
-      for (final m in tjRegex.allMatches(raw)) {
-        final g = m.group(1);
-        if (g != null && g.trim().length > 1) {
-          sb.writeln(g.trim());
-        }
+      try {
+        final document = PdfDocument(inputBytes: bytes);
+        text = PdfTextExtractor(document).extractText();
+        document.dispose();
+      } catch (e) {
+        throw Exception("Failed to parse PDF text: $e");
       }
-      if (sb.length < 50) {
-        final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
-        for (final m in asciiRegex.allMatches(raw)) {
-          final s = m.group(0)!.trim();
-          if (s.length >= 4 &&
-              !s.startsWith('/Font') &&
-              !s.startsWith('/Type') &&
-              !s.startsWith('/Catalog') &&
-              !s.startsWith('/Pages')) {
-            sb.writeln(s);
-          }
-        }
-      }
-      text = sb.toString();
     } else {
       try {
         text = String.fromCharCodes(bytes).trim();
       } catch (_) {
-        final raw = String.fromCharCodes(bytes);
-        final sb = StringBuffer();
-        final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
-        for (final m in asciiRegex.allMatches(raw)) {
-          final s = m.group(0)!.trim();
-          if (s.length >= 4 &&
-              !s.startsWith('/Font') &&
-              !s.startsWith('/Type') &&
-              !s.startsWith('/Catalog') &&
-              !s.startsWith('/Pages')) {
-            sb.writeln(s);
-          }
-        }
-        text = sb.toString();
+        throw Exception("Failed to decode text file.");
       }
     }
+
+    text = text.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]'), ' ');
 
     if (text.trim().isEmpty) return [];
 
@@ -653,9 +627,12 @@ class _RagTabState extends State<RagTab> {
     }
 
     final contextStr = chunks.isEmpty ? '' : chunks.join('\n\n---\n\n');
-    final systemPrompt = chunks.isEmpty
+    String systemPrompt = chunks.isEmpty
         ? "You are a helpful assistant."
         : "You are a helpful document assistant. Use the following document content as your knowledge base:\n\n$contextStr\n\nAnswer based ONLY on the above content.";
+
+    systemPrompt = systemPrompt.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]'), ' ');
+    final cleanText = text.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]'), ' ');
 
     try {
       _session = _denizen.createSession(systemPrompt: systemPrompt);
@@ -671,7 +648,7 @@ class _RagTabState extends State<RagTab> {
     setState(() { _messages.add(aiMsg); });
 
     try {
-      await for (final token in _session!.streamChat(text)) {
+      await for (final token in _session!.streamChat(cleanText)) {
         setState(() { aiMsg.text += token; });
         _scrollToBottom();
       }
