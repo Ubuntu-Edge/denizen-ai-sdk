@@ -101,7 +101,7 @@ class OfflineAIService {
     required String prompt,
     required String systemPrompt,
     int maxTokens = 512,
-    double temperature = 0.7,
+    double temperature = 0.2,
     double topP = 0.9,
     int topK = 40,
     double repeatPenalty = 1.1,

@@ -177,7 +177,7 @@ class OfflineAIService {
   Future<String> generate({
     required String prompt,
     int maxTokens = 512,
-    double temperature = 0.7,
+    double temperature = 0.2,
     double topP = 0.9,
     int topK = 40,
     double repeatPenalty = 1.1,
@@ -229,8 +229,8 @@ class OfflineAIService {
     required String prompt,
     String? systemPrompt,
     int maxTokens = 512,
-    double temperature = 0.8,
-    double topP = 0.95,
+    double temperature = 0.2,
+    double topP = 0.9,
     int topK = 40,
     double repeatPenalty = 1.1,
   }) {
@@ -278,8 +278,8 @@ class OfflineAIService {
   Future<String> generateHistoryChat({
     required List<ChatMessage> messages,
     int maxTokens = 512,
-    double temperature = 0.8,
-    double topP = 0.95,
+    double temperature = 0.2,
+    double topP = 0.9,
     int topK = 40,
     double repeatPenalty = 1.1,
   }) {
@@ -316,8 +316,8 @@ class OfflineAIService {
   Stream<String> generateHistoryChatStream({
     required List<ChatMessage> messages,
     int maxTokens = 512,
-    double temperature = 0.8,
-    double topP = 0.95,
+    double temperature = 0.2,
+    double topP = 0.9,
     int topK = 40,
     double repeatPenalty = 1.1,
   }) {
