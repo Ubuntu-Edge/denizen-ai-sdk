@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:denizen_ai/denizen_ai.dart';
@@ -447,9 +447,9 @@ class _RagTabState extends State<RagTab> {
     return sb.toString();
   }
 
-  // ── Chunking (500-word sliding window, same as Ubuntu Elimu) ──────────────
+  // ── Chunking (150-word sliding window, fits in 2048 token budget) ──────────────
 
-  List<String> _chunk(String text, {int size = 500, int overlap = 50}) {
+  List<String> _chunk(String text, {int size = 150, int overlap = 25}) {
     final words = text.split(RegExp(r'\s+'));
     final chunks = <String>[];
     int start = 0;
