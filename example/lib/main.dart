@@ -405,7 +405,7 @@ enum DocCategory { all, pdf, docx, txt, custom }
       final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
         allowMultiple: false,
-        withData: true,
+        withData: false, // Fast native file picking without JNI MethodChannel memory buffer hang!
       );
       if (result == null || result.files.isEmpty) return;
 
@@ -416,12 +416,12 @@ enum DocCategory { all, pdf, docx, txt, custom }
       setState(() { _isIngesting = true; });
 
       List<int> bytes;
-      if (picked.bytes != null && picked.bytes!.isNotEmpty) {
-        bytes = picked.bytes!;
-      } else if (picked.path != null) {
+      if (picked.path != null && File(picked.path!).existsSync()) {
         bytes = await File(picked.path!).readAsBytes();
+      } else if (picked.bytes != null && picked.bytes!.isNotEmpty) {
+        bytes = picked.bytes!;
       } else {
-        throw Exception("Could not read file.");
+        throw Exception("Unable to access file data from phone storage.");
       }
 
       final chunks = _extractAndChunkFast(bytes, ext);
