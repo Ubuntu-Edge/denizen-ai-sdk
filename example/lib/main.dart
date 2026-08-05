@@ -320,32 +320,81 @@ class _ChatTabState extends State<ChatTab> {
 // TAB 3: RAG & TOOLS
 // ============================================================================
 // ============================================================================
-// TAB 3: CHATGPT-STYLE DOCUMENT CHAT (RAG)
+// ============================================================================
+// TAB 3: UBUNTU-ELIMU DOCUMENT WORKSPACE & RAG CHAT
 // ============================================================================
 
-class IngestedDocumentInfo {
+enum DocCategory { all, pdf, docx, txt, custom }
+
+class StoredDocument {
   final int docId;
   final String title;
+  final DocCategory category;
+  final int sizeBytes;
+  final DateTime addedAt;
+  final String filePath;
   final int chunkCount;
-  final DateTime ingestedAt;
+  final String textPreview;
 
-  IngestedDocumentInfo({
+  StoredDocument({
     required this.docId,
     required this.title,
+    required this.category,
+    required this.sizeBytes,
+    required this.addedAt,
+    required this.filePath,
     required this.chunkCount,
-    required this.ingestedAt,
+    required this.textPreview,
   });
+
+  String get formattedSize {
+    if (sizeBytes < 1024) return '$sizeBytes B';
+    if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  IconData get icon {
+    switch (category) {
+      case DocCategory.pdf:
+        return Icons.picture_as_pdf;
+      case DocCategory.docx:
+        return Icons.description;
+      case DocCategory.txt:
+        return Icons.article;
+      case DocCategory.custom:
+        return Icons.sticky_note_2;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
+  Color get color {
+    switch (category) {
+      case DocCategory.pdf:
+        return Colors.redAccent;
+      case DocCategory.docx:
+        return Colors.blueAccent;
+      case DocCategory.txt:
+        return Colors.greenAccent;
+      case DocCategory.custom:
+        return Colors.purpleAccent;
+      default:
+        return Colors.cyanAccent;
+    }
+  }
 }
 
 class RagChatMessage {
   final String sender; // "user", "assistant", or "system"
   String text;
   final List<String> retrievedSnippets;
+  final String? scopedDocTitle;
 
   RagChatMessage({
     required this.sender,
     required this.text,
     this.retrievedSnippets = const [],
+    this.scopedDocTitle,
   });
 }
 
@@ -366,13 +415,18 @@ class _RagTabState extends State<RagTab> {
   bool _isInitializing = true;
   bool _isIngesting = false;
   bool _isGenerating = false;
+  bool _showLibraryWorkspace = true;
   String _statusMessage = "Initializing RAG Vector Engine...";
 
-  final List<IngestedDocumentInfo> _ingestedDocs = [];
+  final List<StoredDocument> _documents = [];
   final List<RagChatMessage> _messages = [];
   final TextEditingController _promptController = TextEditingController();
+  final TextEditingController _docSearchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  int _nextDocId = 1;
+
+  DocCategory _selectedCategory = DocCategory.all;
+  int? _scopedDocId;
+  String _docSearchQuery = "";
 
   @override
   void initState() {
@@ -395,12 +449,12 @@ class _RagTabState extends State<RagTab> {
       _ragSession = _denizen.createRagSession(
         embeddingProvider: _embeddingProvider!,
         storageService: _storageService!,
-        baseSystemPrompt: "You are a helpful AI assistant. Answer user questions accurately based on the provided document context.",
+        baseSystemPrompt: "You are an intelligent offline document AI assistant. Answer user questions accurately based strictly on the provided document context.",
       );
 
       setState(() {
         _isInitializing = false;
-        _statusMessage = "RAG Vector DB ready. Add a document from your phone to get started.";
+        _statusMessage = "Ubuntu Elimu Document Workspace ready.";
       });
     } catch (e) {
       debugPrint("RAG init error: $e");
@@ -411,8 +465,16 @@ class _RagTabState extends State<RagTab> {
     }
   }
 
-  /// Pick file natively from phone storage
-  Future<void> _pickAndIngestFile() async {
+  List<StoredDocument> get _filteredDocuments {
+    return _documents.where((doc) {
+      final matchesSearch = doc.title.toLowerCase().contains(_docSearchQuery.toLowerCase());
+      final matchesCategory = _selectedCategory == DocCategory.all || doc.category == _selectedCategory;
+      return matchesSearch && matchesCategory;
+    }).toList();
+  }
+
+  /// Pick file natively from phone storage (Ubuntu Elimu style)
+  Future<void> _pickAndUploadDocument() async {
     if (_ingestionService == null || _storageService == null || !_storageService!.isInitialized) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vector database is not ready yet.')),
@@ -428,33 +490,60 @@ class _RagTabState extends State<RagTab> {
 
       if (result == null || result.files.isEmpty) return;
 
-      final path = result.files.first.path;
-      final name = result.files.first.name;
-      if (path == null) return;
+      final pickedFile = result.files.first;
+      if (pickedFile.path == null) return;
+
+      final sourceFile = File(pickedFile.path!);
+      final name = pickedFile.name;
+      final ext = pickedFile.extension?.toLowerCase() ?? '';
 
       setState(() {
         _isIngesting = true;
         _statusMessage = "Ingesting $name from phone storage...";
       });
 
-      final file = File(path);
-      final docId = _nextDocId++;
+      // 1. Copy to local app documents directory
+      final appDir = await getApplicationDocumentsDirectory();
+      final docsDir = Directory('${appDir.path}/denizen_documents');
+      if (!await docsDir.exists()) {
+        await docsDir.create(recursive: true);
+      }
+      final savedPath = '${docsDir.path}/$name';
+      await sourceFile.copy(savedPath);
+      final savedFile = File(savedPath);
 
-      await _ingestionService!.ingestFile(docId, file);
+      // 2. Register document in SQLite Vector Storage
+      final docId = _storageService!.insertDocument(name, sourceUri: savedPath);
 
-      final chunkCount = _storageService!.search(List.filled(384, 0.1), limit: 100).length;
+      // 3. Ingest and extract text & vectors
+      await _ingestionService!.ingestFile(docId, savedFile);
+
+      // 4. Query vector count for this document
+      final searchResults = _storageService!.search(List.filled(384, 0.1), limit: 200);
+      final chunkCount = searchResults.isEmpty ? 1 : searchResults.length;
+
+      DocCategory cat = DocCategory.txt;
+      if (ext == 'pdf') cat = DocCategory.pdf;
+      if (ext == 'docx' || ext == 'doc') cat = DocCategory.docx;
+
+      final storedDoc = StoredDocument(
+        docId: docId,
+        title: name,
+        category: cat,
+        sizeBytes: pickedFile.size,
+        addedAt: DateTime.now(),
+        filePath: savedPath,
+        chunkCount: chunkCount,
+        textPreview: "Document ingested into sqlite-vec with $chunkCount vectors.",
+      );
 
       setState(() {
-        _ingestedDocs.add(IngestedDocumentInfo(
-          docId: docId,
-          title: name,
-          chunkCount: chunkCount > 0 ? chunkCount : 1,
-          ingestedAt: DateTime.now(),
-        ));
+        _documents.add(storedDoc);
+        _scopedDocId = docId;
         _statusMessage = "Successfully ingested '$name' into local Vector DB!";
         _messages.add(RagChatMessage(
           sender: "system",
-          text: "📁 Document added: '$name' (Ingested into local Vector DB). You can now ask questions about it!",
+          text: "📁 Ingested '$name' ($chunkCount vector chunks). Active chat scoped to this document!",
         ));
       });
     } catch (e) {
@@ -471,7 +560,7 @@ class _RagTabState extends State<RagTab> {
     }
   }
 
-  /// Paste text modal fallback
+  /// Paste custom text modal dialog
   void _showPasteTextDialog() {
     final titleController = TextEditingController();
     final contentController = TextEditingController();
@@ -480,11 +569,12 @@ class _RagTabState extends State<RagTab> {
       context: context,
       builder: (context) {
         return AlertDialog(
+          backgroundColor: Colors.grey[900],
           title: const Row(
             children: [
-              Icon(Icons.edit_note, color: Colors.cyanAccent),
+              Icon(Icons.note_add, color: Colors.purpleAccent),
               SizedBox(width: 8),
-              Text('Paste Custom Document'),
+              Text('Add Custom Text Note', style: TextStyle(color: Colors.white)),
             ],
           ),
           content: SingleChildScrollView(
@@ -493,8 +583,10 @@ class _RagTabState extends State<RagTab> {
               children: [
                 TextField(
                   controller: titleController,
+                  style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
-                    labelText: 'Document Title (e.g. Secret Password Guide)',
+                    labelText: 'Title (e.g. Love Story Notes)',
+                    labelStyle: TextStyle(color: Colors.cyanAccent),
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -502,9 +594,12 @@ class _RagTabState extends State<RagTab> {
                 TextField(
                   controller: contentController,
                   maxLines: 6,
+                  style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(
-                    labelText: 'Document Content / Notes',
-                    hintText: 'Paste any text, notes, guidelines, or confidential information here...',
+                    labelText: 'Document Content / Text',
+                    labelStyle: TextStyle(color: Colors.cyanAccent),
+                    hintText: 'Paste custom text, study guide, or notes here...',
+                    hintStyle: TextStyle(color: Colors.grey),
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -514,18 +609,19 @@ class _RagTabState extends State<RagTab> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
             ),
             ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purpleAccent),
               onPressed: () async {
                 final title = titleController.text.trim();
                 final content = contentController.text.trim();
                 if (title.isEmpty || content.isEmpty) return;
 
                 Navigator.pop(context);
-                await _ingestRawText(title, content);
+                await _ingestCustomText(title, content);
               },
-              child: const Text('Ingest Text'),
+              child: const Text('Ingest Note', style: TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -533,7 +629,7 @@ class _RagTabState extends State<RagTab> {
     );
   }
 
-  Future<void> _ingestRawText(String title, String content) async {
+  Future<void> _ingestCustomText(String title, String content) async {
     if (_ingestionService == null || _storageService == null) return;
 
     setState(() {
@@ -542,20 +638,38 @@ class _RagTabState extends State<RagTab> {
     });
 
     try {
-      final docId = _nextDocId++;
+      final appDir = await getApplicationDocumentsDirectory();
+      final docsDir = Directory('${appDir.path}/denizen_documents');
+      if (!await docsDir.exists()) {
+        await docsDir.create(recursive: true);
+      }
+      final savedPath = '${docsDir.path}/$title.txt';
+      final file = File(savedPath);
+      await file.writeAsString(content);
+
+      final docId = _storageService!.insertDocument(title, sourceUri: savedPath);
       await _ingestionService!.ingestText(docId, content);
 
+      final chunkCount = (content.length / 200).ceil();
+
+      final storedDoc = StoredDocument(
+        docId: docId,
+        title: title,
+        category: DocCategory.custom,
+        sizeBytes: content.length,
+        addedAt: DateTime.now(),
+        filePath: savedPath,
+        chunkCount: chunkCount,
+        textPreview: content.length > 80 ? '${content.substring(0, 80)}...' : content,
+      );
+
       setState(() {
-        _ingestedDocs.add(IngestedDocumentInfo(
-          docId: docId,
-          title: title,
-          chunkCount: (content.length / 200).ceil(),
-          ingestedAt: DateTime.now(),
-        ));
-        _statusMessage = "Successfully ingested '$title' into Vector DB!";
+        _documents.add(storedDoc);
+        _scopedDocId = docId;
+        _statusMessage = "Ingested '$title' into Vector DB!";
         _messages.add(RagChatMessage(
           sender: "system",
-          text: "📝 Document added: '$title'. You can now ask questions about this document!",
+          text: "📝 Note added: '$title' ($chunkCount chunks). Scoped chat to this note!",
         ));
       });
     } catch (e) {
@@ -567,6 +681,29 @@ class _RagTabState extends State<RagTab> {
         _isIngesting = false;
       });
     }
+  }
+
+  void _deleteDocument(StoredDocument doc) {
+    if (_storageService != null) {
+      _storageService!.deleteDocument(doc.docId);
+    }
+    final file = File(doc.filePath);
+    if (file.existsSync()) {
+      try {
+        file.deleteSync();
+      } catch (_) {}
+    }
+
+    setState(() {
+      _documents.removeWhere((d) => d.docId == doc.docId);
+      if (_scopedDocId == doc.docId) {
+        _scopedDocId = null;
+      }
+      _messages.add(RagChatMessage(
+        sender: "system",
+        text: "🗑 Deleted document: '${doc.title}' from Vector DB.",
+      ));
+    });
   }
 
   /// Send prompt and stream answer
@@ -582,8 +719,27 @@ class _RagTabState extends State<RagTab> {
     }
 
     _promptController.clear();
+
+    String? scopedTitle;
+    if (_scopedDocId != null) {
+      final doc = _documents.firstWhere(
+        (d) => d.docId == _scopedDocId,
+        orElse: () => StoredDocument(
+          docId: -1,
+          title: "All Docs",
+          category: DocCategory.all,
+          sizeBytes: 0,
+          addedAt: DateTime.now(),
+          filePath: "",
+          chunkCount: 0,
+          textPreview: "",
+        ),
+      );
+      if (doc.docId != -1) scopedTitle = doc.title;
+    }
+
     setState(() {
-      _messages.add(RagChatMessage(sender: "user", text: text));
+      _messages.add(RagChatMessage(sender: "user", text: text, scopedDocTitle: scopedTitle));
       _isGenerating = true;
     });
 
@@ -595,12 +751,12 @@ class _RagTabState extends State<RagTab> {
       if (_embeddingProvider != null && _storageService != null && _storageService!.isInitialized) {
         try {
           final queryVec = await _embeddingProvider!.embed(text);
-          final searchResults = _storageService!.search(queryVec, limit: 2);
+          final searchResults = _storageService!.search(queryVec, limit: 3);
           snippets = searchResults.map((r) => r['text_content'].toString()).toList();
         } catch (_) {}
       }
 
-      final aiMsg = RagChatMessage(sender: "assistant", text: "", retrievedSnippets: snippets);
+      final aiMsg = RagChatMessage(sender: "assistant", text: "", retrievedSnippets: snippets, scopedDocTitle: scopedTitle);
       setState(() {
         _messages.add(aiMsg);
       });
@@ -648,94 +804,265 @@ class _RagTabState extends State<RagTab> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Initializing RAG Vector Engine...'),
+            Text('Initializing Ubuntu Elimu Document Workspace...'),
           ],
         ),
       );
     }
 
+    final scopedDoc = _scopedDocId != null
+        ? _documents.firstWhere((d) => d.docId == _scopedDocId, orElse: () => _documents.first)
+        : null;
+
     return Column(
       children: [
-        // ================= KNOWLEDGE BASE BAR =================
+        // ================= UBUNTU ELIMU HEADER BAR =================
         Container(
           color: Colors.grey[900],
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  const Icon(Icons.auto_stories, color: Colors.cyanAccent, size: 20),
+                  const Icon(Icons.school, color: Colors.cyanAccent, size: 22),
                   const SizedBox(width: 8),
-                  Text(
-                    "Knowledge Base (${_ingestedDocs.length} Docs)",
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  const Text(
+                    "Ubuntu Elimu Workspace",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
                   ),
                   const Spacer(),
                   IconButton(
+                    icon: Icon(
+                      _showLibraryWorkspace ? Icons.expand_less : Icons.folder_copy,
+                      color: Colors.cyanAccent,
+                    ),
+                    tooltip: "Toggle Library Workspace",
+                    onPressed: () {
+                      setState(() {
+                        _showLibraryWorkspace = !_showLibraryWorkspace;
+                      });
+                    },
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.upload_file, color: Colors.cyanAccent),
-                    tooltip: "Pick File from Phone",
-                    onPressed: _isIngesting ? null : _pickAndIngestFile,
+                    tooltip: "Upload Document (PDF/DOCX/TXT)",
+                    onPressed: _isIngesting ? null : _pickAndUploadDocument,
                   ),
                   IconButton(
                     icon: const Icon(Icons.note_add, color: Colors.purpleAccent),
-                    tooltip: "Paste Custom Text",
+                    tooltip: "Paste Custom Text Note",
                     onPressed: _isIngesting ? null : _showPasteTextDialog,
                   ),
                 ],
               ),
+
               if (_isIngesting) ...[
                 const SizedBox(height: 4),
                 const LinearProgressIndicator(),
               ],
-              if (_ingestedDocs.isNotEmpty) ...[
+
+              // Scope selector chip bar
+              if (_documents.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                SizedBox(
-                  height: 36,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _ingestedDocs.length,
-                    itemBuilder: (context, index) {
-                      final doc = _ingestedDocs[index];
-                      return Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.cyan.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.description, size: 14, color: Colors.cyanAccent),
-                            const SizedBox(width: 6),
-                            Text(
-                              doc.title,
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              "(${doc.chunkCount} chunks)",
-                              style: TextStyle(fontSize: 10, color: Colors.grey[400]),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      FilterChip(
+                        selected: _scopedDocId == null,
+                        label: Text("🌐 All Docs (${_documents.length})"),
+                        selectedColor: Colors.deepPurple,
+                        onSelected: (_) {
+                          setState(() {
+                            _scopedDocId = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      ..._documents.map((doc) {
+                        final isSelected = _scopedDocId == doc.docId;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: FilterChip(
+                            avatar: Icon(doc.icon, size: 14, color: doc.color),
+                            selected: isSelected,
+                            selectedColor: doc.color.withOpacity(0.3),
+                            label: Text("${doc.title} (${doc.chunkCount} chk)"),
+                            onSelected: (_) {
+                              setState(() {
+                                _scopedDocId = isSelected ? null : doc.docId;
+                              });
+                            },
+                          ),
+                        );
+                      }),
+                    ],
                   ),
                 ),
-              ] else ...[
-                const SizedBox(height: 4),
-                Text(
-                  "No bespoke documents uploaded yet. Tap 📁 icon to pick a file from your phone!",
-                  style: TextStyle(fontSize: 11, color: Colors.grey[400]),
-                ),
-              ]
+              ],
             ],
           ),
         ),
 
-        const Divider(height: 1),
+        // ================= UBUNTU ELIMU LIBRARY WORKSPACE =================
+        if (_showLibraryWorkspace) ...[
+          Container(
+            color: Colors.grey[850],
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _docSearchController,
+                        style: const TextStyle(fontSize: 12, color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Search documents...',
+                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          prefixIcon: const Icon(Icons.search, size: 16, color: Colors.cyanAccent),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          filled: true,
+                          fillColor: Colors.grey[900],
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onChanged: (val) {
+                          setState(() {
+                            _docSearchQuery = val;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    DropdownButton<DocCategory>(
+                      value: _selectedCategory,
+                      dropdownColor: Colors.grey[900],
+                      underline: const SizedBox(),
+                      style: const TextStyle(fontSize: 12, color: Colors.cyanAccent),
+                      items: DocCategory.values.map((cat) {
+                        return DropdownMenuItem(
+                          value: cat,
+                          child: Text(cat.name.toUpperCase()),
+                        );
+                      }).toList(),
+                      onChanged: (cat) {
+                        if (cat != null) {
+                          setState(() {
+                            _selectedCategory = cat;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 8),
+
+                if (_filteredDocuments.isEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      _documents.isEmpty
+                          ? "No documents uploaded yet. Tap 📁 to pick a PDF/DOCX from your phone or 📝 to paste text."
+                          : "No matching documents found.",
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ),
+                ] else ...[
+                  SizedBox(
+                    height: 105,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _filteredDocuments.length,
+                      itemBuilder: (context, index) {
+                        final doc = _filteredDocuments[index];
+                        final isScoped = _scopedDocId == doc.docId;
+
+                        return Container(
+                          width: 190,
+                          margin: const EdgeInsets.only(right: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: isScoped ? Colors.deepPurple.withOpacity(0.3) : Colors.grey[900],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isScoped ? Colors.cyanAccent : Colors.grey[700]!,
+                              width: isScoped ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(doc.icon, color: doc.color, size: 18),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      doc.title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => _deleteDocument(doc),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                "${doc.formattedSize} • ${doc.chunkCount} vector chunks",
+                                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                              ),
+                              const Spacer(),
+                              Align(
+                                alignment: Alignment.bottomRight,
+                                child: TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _scopedDocId = doc.docId;
+                                    });
+                                  },
+                                  child: Text(
+                                    isScoped ? "✓ Active Doc" : "Chat with Doc",
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: isScoped ? Colors.cyanAccent : Colors.purpleAccent,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Colors.grey),
+        ],
 
         // ================= CHAT MESSAGES CANVAS =================
         Expanded(
@@ -761,56 +1088,96 @@ class _RagTabState extends State<RagTab> {
             color: Colors.grey[900],
             border: Border(top: BorderSide(color: Colors.grey[800]!)),
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.add_circle_outline, color: Colors.cyanAccent, size: 28),
-                onSelected: (value) {
-                  if (value == 'phone') {
-                    _pickAndIngestFile();
-                  } else if (value == 'text') {
-                    _showPasteTextDialog();
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'phone',
-                    child: Row(
-                      children: [
-                        Icon(Icons.smartphone, color: Colors.cyanAccent),
-                        SizedBox(width: 8),
-                        Text('Pick File from Phone'),
-                      ],
+              if (scopedDoc != null) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(scopedDoc.icon, size: 12, color: scopedDoc.color),
+                      const SizedBox(width: 6),
+                      Text(
+                        "Scoped to: ${scopedDoc.title}",
+                        style: const TextStyle(fontSize: 11, color: Colors.cyanAccent, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () {
+                          setState(() {
+                            _scopedDocId = null;
+                          });
+                        },
+                        child: const Icon(Icons.close, size: 14, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              Row(
+                children: [
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.add_circle_outline, color: Colors.cyanAccent, size: 28),
+                    onSelected: (value) {
+                      if (value == 'phone') {
+                        _pickAndUploadDocument();
+                      } else if (value == 'text') {
+                        _showPasteTextDialog();
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'phone',
+                        child: Row(
+                          children: [
+                            Icon(Icons.smartphone, color: Colors.cyanAccent),
+                            SizedBox(width: 8),
+                            Text('Upload Document (PDF/DOCX/TXT)'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'text',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_note, color: Colors.purpleAccent),
+                            SizedBox(width: 8),
+                            Text('Paste Custom Text Note'),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _promptController,
+                      maxLines: 4,
+                      minLines: 1,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: scopedDoc != null
+                            ? 'Ask questions about "${scopedDoc.title}"...'
+                            : 'Ask questions about your uploaded documents...',
+                        hintStyle: const TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                      ),
+                      onSubmitted: (_) => _sendMessage(),
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: 'text',
-                    child: Row(
-                      children: [
-                        Icon(Icons.edit_note, color: Colors.purpleAccent),
-                        SizedBox(width: 8),
-                        Text('Paste Custom Text'),
-                      ],
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.send_rounded, color: Colors.deepPurpleAccent),
+                    onPressed: _isGenerating ? null : _sendMessage,
                   ),
                 ],
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  controller: _promptController,
-                  maxLines: 4,
-                  minLines: 1,
-                  decoration: const InputDecoration(
-                    hintText: 'Ask questions about your uploaded documents...',
-                    border: InputBorder.none,
-                  ),
-                  onSubmitted: (_) => _sendMessage(),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.send_rounded, color: Colors.deepPurpleAccent),
-                onPressed: _isGenerating ? null : _sendMessage,
               ),
             ],
           ),
@@ -832,29 +1199,45 @@ class _RagTabState extends State<RagTab> {
                 color: Colors.deepPurple.withOpacity(0.15),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.auto_stories, size: 64, color: Colors.cyanAccent),
+              child: const Icon(Icons.school, size: 64, color: Colors.cyanAccent),
             ),
             const SizedBox(height: 16),
             const Text(
-              "Document RAG Chat",
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              "Ubuntu Elimu Document RAG Workspace",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 8),
             const Text(
-              "Pick custom files from your phone storage or paste bespoke notes. AI will answer questions directly using your uploaded documents!",
+              "Upload bespoke PDF, DOCX, or text files from your phone or paste notes into your local library. AI will retrieve exact context chunks and answer questions offline!",
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
+              style: TextStyle(color: Colors.grey, fontSize: 13),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _pickAndIngestFile,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Pick File from Phone'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.deepPurple,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _pickAndUploadDocument,
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('Upload Document'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton.icon(
+                  onPressed: _showPasteTextDialog,
+                  icon: const Icon(Icons.edit_note, color: Colors.purpleAccent),
+                  label: const Text('Add Text Note', style: TextStyle(color: Colors.purpleAccent)),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.purpleAccent),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -905,9 +1288,25 @@ class _RagTabState extends State<RagTab> {
                     color: isUser ? Colors.deepPurple : Colors.grey[850],
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    msg.text.isEmpty ? "..." : msg.text,
-                    style: const TextStyle(fontSize: 14, height: 1.4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (msg.scopedDocTitle != null) ...[
+                        Text(
+                          "Scoped to: ${msg.scopedDocTitle}",
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: isUser ? Colors.cyanAccent : Colors.purpleAccent,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                      ],
+                      Text(
+                        msg.text.isEmpty ? "..." : msg.text,
+                        style: const TextStyle(fontSize: 14, height: 1.4, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
               ),

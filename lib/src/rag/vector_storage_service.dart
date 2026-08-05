@@ -94,6 +94,29 @@ class VectorStorageService {
     ''');
   }
 
+  /// Inserts a document record and returns its docId
+  int insertDocument(String title, {String? sourceUri}) {
+    if (_db == null) throw Exception("VectorStorageService not initialized");
+    final stmt = _db!.prepare('''
+      INSERT INTO documents (title, source_uri, ingested_at)
+      VALUES (?, ?, ?)
+    ''');
+    stmt.execute([title, sourceUri ?? '', DateTime.now().millisecondsSinceEpoch]);
+    final docId = _db!.lastInsertRowId;
+    stmt.dispose();
+    return docId;
+  }
+
+  /// Deletes a document and all its corresponding chunks and vectors
+  void deleteDocument(int docId) {
+    if (_db == null) return;
+    try {
+      _db!.execute('DELETE FROM vec_chunks WHERE rowid IN (SELECT chunk_id FROM document_chunks WHERE doc_id = ?)', [docId]);
+      _db!.execute('DELETE FROM document_chunks WHERE doc_id = ?', [docId]);
+      _db!.execute('DELETE FROM documents WHERE id = ?', [docId]);
+    } catch (_) {}
+  }
+
   /// Inserts a chunk and its corresponding embedding.
   int insertChunk(int docId, String textContent, int chunkIndex, List<double> embedding) {
     if (_db == null) throw Exception("VectorStorageService not initialized");
