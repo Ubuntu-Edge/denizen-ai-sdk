@@ -189,6 +189,7 @@ class OfflineAIService {
       }
 
       try {
+        await _controller!.clearContext();
         final StringBuffer result = StringBuffer();
         
         final stream = _controller!.generate(
@@ -239,6 +240,7 @@ class OfflineAIService {
       }
       
       try {
+        await _controller!.clearContext();
         final StringBuffer result = StringBuffer();
         final messages = [
           ChatMessage(
@@ -287,6 +289,7 @@ class OfflineAIService {
       }
       
       try {
+        await _controller!.clearContext();
         final StringBuffer result = StringBuffer();
         final stream = _controller!.generateChat(
           messages: messages,
@@ -327,6 +330,7 @@ class OfflineAIService {
       _stopRequested = false;
       
       try {
+        await _controller!.clearContext();
         final stream = _controller!.generateChat(
           messages: messages,
           maxTokens: maxTokens,
