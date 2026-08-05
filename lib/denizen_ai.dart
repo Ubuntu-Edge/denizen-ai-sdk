@@ -844,34 +844,37 @@ class DenizenRagSession extends DenizenSession {
       knowledgeBuffer.writeln(chunks[i]['text_content']);
     }
 
-    // Replace the system prompt (which is always at index 0)
+    // Replace or insert the system prompt (which is always at index 0)
     if (_history.isNotEmpty && _history.first.role == DenizenRole.system) {
       _history[0] = DenizenMessage(
         role: DenizenRole.system,
         content: knowledgeBuffer.toString(),
       );
+    } else {
+      _history.insert(0, DenizenMessage(
+        role: DenizenRole.system,
+        content: knowledgeBuffer.toString(),
+      ));
     }
   }
 
   @override
   Future<String> chat(String prompt) {
     return sessionQueue.run(() async {
-      // 1. Embed the user prompt
-      final queryEmbedding = await _embeddingProvider.embed(prompt);
-      
-      // 2. Retrieve relevant chunks (using background orchestrator if available)
-      final orchestrator = DenizenOrchestrator();
-      List<Map<String, dynamic>> chunks;
-      if (orchestrator.isReady) {
-        chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-      } else {
-        chunks = _storageService.search(queryEmbedding, limit: 3);
+      List<Map<String, dynamic>> chunks = [];
+      try {
+        final queryEmbedding = await _embeddingProvider.embed(prompt);
+        final orchestrator = DenizenOrchestrator();
+        if (orchestrator.isReady) {
+          chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+        } else if (_storageService.isInitialized) {
+          chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+      } catch (e) {
+        debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
       }
       
-      // 3. Inject into context
       _injectKnowledge(chunks);
-
-      // 4. Proceed with standard chat
       return chatInternal(prompt);
     });
   }
@@ -879,22 +882,20 @@ class DenizenRagSession extends DenizenSession {
   @override
   Stream<String> streamChat(String prompt) {
     return sessionQueue.runStream(() async* {
-      // 1. Embed the user prompt
-      final queryEmbedding = await _embeddingProvider.embed(prompt);
-      
-      // 2. Retrieve relevant chunks (using background orchestrator if available)
-      final orchestrator = DenizenOrchestrator();
-      List<Map<String, dynamic>> chunks;
-      if (orchestrator.isReady) {
-        chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-      } else {
-        chunks = _storageService.search(queryEmbedding, limit: 3);
+      List<Map<String, dynamic>> chunks = [];
+      try {
+        final queryEmbedding = await _embeddingProvider.embed(prompt);
+        final orchestrator = DenizenOrchestrator();
+        if (orchestrator.isReady) {
+          chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+        } else if (_storageService.isInitialized) {
+          chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+      } catch (e) {
+        debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
       }
       
-      // 3. Inject into context
       _injectKnowledge(chunks);
-
-      // 4. Proceed with standard streaming chat
       yield* streamChatInternal(prompt);
     });
   }
