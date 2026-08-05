@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -320,18 +320,87 @@ class _ChatTabState extends State<ChatTab> {
 // ============================================================================
 // TAB 3: DOCUMENT WORKSPACE & RAG CHAT  (Ubuntu-Elimu style — pure Dart)
 // ============================================================================
-//
-// How this works (identical to Ubuntu Elimu):
-//  1. User picks a file or pastes text.
-//  2. We read the bytes, extract printable text, split into 500-word chunks.
-//  3. Chunks are stored in memory (List<_DocEntry>). No sqlite-vec needed.
-//  4. On each question, top-3 chunks are picked by keyword-score (same as UE).
-//  5. Those chunks are joined and injected directly into the system prompt.
-//  6. If a GGUF model is loaded, the LLM answers. Otherwise we show the raw
-//     context so the user can see the retrieval working immediately.
-// ============================================================================
 
 enum DocCategory { all, pdf, docx, txt, custom }
+
+class _DocEntry {
+  final String id;
+  final String title;
+  final DocCategory category;
+  final int sizeBytes;
+  final DateTime addedAt;
+  final List<String> chunks;
+
+  _DocEntry({
+    required this.id,
+    required this.title,
+    required this.category,
+    required this.sizeBytes,
+    required this.addedAt,
+    required this.chunks,
+  });
+
+  IconData get icon {
+    switch (category) {
+      case DocCategory.pdf: return Icons.picture_as_pdf;
+      case DocCategory.docx: return Icons.description;
+      case DocCategory.txt: return Icons.text_snippet;
+      case DocCategory.custom: return Icons.edit_note;
+      default: return Icons.insert_drive_file;
+    }
+  }
+
+  Color get color {
+    switch (category) {
+      case DocCategory.pdf: return Colors.redAccent;
+      case DocCategory.docx: return Colors.blueAccent;
+      case DocCategory.txt: return Colors.greenAccent;
+      case DocCategory.custom: return Colors.purpleAccent;
+      default: return Colors.grey;
+    }
+  }
+
+  String get sizeLabel {
+    if (sizeBytes < 1024) return '$sizeBytes B';
+    if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
+    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+}
+
+class _ChatMsg {
+  final bool isUser;
+  final bool isSystem;
+  String text;
+  _ChatMsg({required this.isUser, required this.text, this.isSystem = false});
+}
+
+class RagTab extends StatefulWidget {
+  const RagTab({super.key});
+
+  @override
+  State<RagTab> createState() => _RagTabState();
+}
+
+class _RagTabState extends State<RagTab> {
+  final DenizenAI _denizen = DenizenAI();
+  DenizenSession? _session;
+
+  final List<_DocEntry> _docs = [];
+  String? _activDocId;
+  final List<_ChatMsg> _messages = [];
+  bool _isGenerating = false;
+  bool _isIngesting = false;
+
+  final ScrollController _scrollCtrl = ScrollController();
+  final TextEditingController _promptCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _scrollCtrl.dispose();
+    _promptCtrl.dispose();
+    super.dispose();
+  }
+
   // ── Fast Synchronous Ingestion & Chunking ──────────────────────────
 
   List<String> _extractAndChunkFast(List<int> bytes, String ext) {
@@ -400,12 +469,51 @@ enum DocCategory { all, pdf, docx, txt, custom }
     return chunks;
   }
 
+  List<String> _chunk(String content) {
+    final words = content.split(RegExp(r'\s+'));
+    final List<String> chunks = [];
+    int start = 0;
+    while (start < words.length) {
+      final end = (start + 150).clamp(0, words.length);
+      chunks.add(words.sublist(start, end).join(' '));
+      if (end == words.length) break;
+      start += 125;
+    }
+    return chunks;
+  }
+
+  List<String> _getRelevantChunks(String docId, String query) {
+    final doc = _docs.firstWhere((d) => d.id == docId);
+    return _scoreAndSort(doc.chunks, query);
+  }
+
+  List<String> _getChunksAllDocs(String query) {
+    final allChunks = _docs.expand((d) => d.chunks).toList();
+    return _scoreAndSort(allChunks, query);
+  }
+
+  List<String> _scoreAndSort(List<String> chunks, String query) {
+    final queryWords = query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
+    if (queryWords.isEmpty) {
+      return chunks.take(3).toList();
+    }
+    
+    final scored = chunks.map((chunk) {
+      final chunkWords = chunk.toLowerCase().split(RegExp(r'\s+')).toSet();
+      final intersection = queryWords.intersection(chunkWords);
+      return MapEntry(chunk, intersection.length);
+    }).toList();
+    
+    scored.sort((a, b) => b.value.compareTo(a.value));
+    return scored.take(3).map((e) => e.key).toList();
+  }
+
   Future<void> _pickAndIngest() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
         allowMultiple: false,
-        withData: false, // Fast native file picking without JNI MethodChannel memory buffer hang!
+        withData: false, 
       );
       if (result == null || result.files.isEmpty) return;
 
@@ -521,7 +629,6 @@ enum DocCategory { all, pdf, docx, txt, custom }
     if (text.isEmpty) return;
     _promptCtrl.clear();
 
-    // Retrieve context — Ubuntu Elimu-style keyword scoring
     final chunks = _activDocId != null
         ? _getRelevantChunks(_activDocId!, text)
         : _getChunksAllDocs(text);
@@ -532,7 +639,6 @@ enum DocCategory { all, pdf, docx, txt, custom }
     });
     _scrollToBottom();
 
-    // If no model loaded → show raw context immediately (still useful for testing!)
     if (!_denizen.isModelLoaded) {
       final answer = chunks.isNotEmpty
           ? "Document context for your query:\n\n${chunks.join('\n\n---\n\n')}\n\n"
@@ -546,7 +652,6 @@ enum DocCategory { all, pdf, docx, txt, custom }
       return;
     }
 
-    // Inject context into system prompt — identical to Ubuntu Elimu's tutorStream approach
     final contextStr = chunks.isEmpty ? '' : chunks.join('\n\n---\n\n');
     final systemPrompt = chunks.isEmpty
         ? "You are a helpful assistant."
@@ -715,7 +820,7 @@ enum DocCategory { all, pdf, docx, txt, custom }
                 padding: const EdgeInsets.all(12),
                 constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.82),
                 decoration: BoxDecoration(
-                  color: msg.isUser ? Colors.deepPurple[700] : Colors.grey[800],
+                  color: msg.isUser ? Colors.deepPurple[700]! : Colors.grey[800]!,
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Text(
@@ -759,8 +864,6 @@ enum DocCategory { all, pdf, docx, txt, custom }
     ]);
   }
 }
-
-
 // ============================================================================
 // ============================================================================
 // TAB 4: VOICE
