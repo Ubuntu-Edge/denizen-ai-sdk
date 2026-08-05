@@ -696,11 +696,9 @@ class DenizenSession {
     }
   }
 
-  /// Resolves the context limit dynamically based on override or model spec.
+  /// Resolves the context limit dynamically based on override or actual loaded native engine limit.
   int get _resolvedContextLimit {
-    // 4096 is a conservative fallback guess in case a session is used 
-    // before a model is loaded or the model has no context spec.
-    return _maxTokensOverride ?? _aiService.loadedModel?.contextSize ?? 4096;
+    return _maxTokensOverride ?? _aiService.loadedContextSize;
   }
 
   /// Convert DenizenRole to underlying ChatMessage role string.

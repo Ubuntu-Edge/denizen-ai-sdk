@@ -37,6 +37,9 @@ class OfflineAIService {
   /// Currently loaded model info
   String? _loadedModelPath;
   OfflineModel? _loadedModel;
+  int _loadedContextSize = 2048;
+
+  int get loadedContextSize => _loadedContextSize;
 
   /// Flag to stop generation
   bool _stopRequested = false;
@@ -99,6 +102,8 @@ class OfflineAIService {
             : 2048;
         params = OfflineContextParams(nCtx: safeCtx);
       }
+      
+      _loadedContextSize = params.nCtx;
       
       // Create new controller
       _controller = LlamaController();
