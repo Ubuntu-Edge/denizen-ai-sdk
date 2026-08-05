@@ -384,7 +384,7 @@ class RagTab extends StatefulWidget {
 
 class _RagTabState extends State<RagTab> {
   final DenizenAI _denizen = DenizenAI();
-  DenizenSession? _session;
+  DenizenRagSession? _session;
 
   final List<_DocEntry> _docs = [];
   String? _activDocId;
@@ -394,6 +394,16 @@ class _RagTabState extends State<RagTab> {
 
   final ScrollController _scrollCtrl = ScrollController();
   final TextEditingController _promptCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _session = _denizen.createRagSession(
+      embeddingProvider: TFLiteEmbeddingProvider(),
+      storageService: VectorStorageService(),
+      baseSystemPrompt: "You are a helpful document assistant.",
+    );
+  }
 
   @override
   void dispose() {
@@ -469,7 +479,7 @@ class _RagTabState extends State<RagTab> {
   List<String> _scoreAndSort(List<String> chunks, String query) {
     final queryWords = query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
     if (queryWords.isEmpty) {
-      return chunks.take(3).toList();
+      return [];
     }
     
     final scored = chunks.map((chunk) {
@@ -477,6 +487,12 @@ class _RagTabState extends State<RagTab> {
       final intersection = queryWords.intersection(chunkWords);
       return MapEntry(chunk, intersection.length);
     }).toList();
+    
+    int maxScore = 0;
+    for (final s in scored) {
+      if (s.value > maxScore) maxScore = s.value;
+    }
+    if (maxScore == 0) return [];
     
     scored.sort((a, b) => b.value.compareTo(a.value));
     return scored.take(3).map((e) => e.key).toList();
@@ -626,29 +642,13 @@ class _RagTabState extends State<RagTab> {
       return;
     }
 
-    final contextStr = chunks.isEmpty ? '' : chunks.join('\n\n---\n\n');
-    String systemPrompt = chunks.isEmpty
-        ? "You are a helpful assistant."
-        : "You are a helpful document assistant. Use the following document content as your knowledge base:\n\n$contextStr\n\nAnswer based ONLY on the above content.";
-
-    systemPrompt = systemPrompt.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]'), ' ');
     final cleanText = text.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]'), ' ');
-
-    try {
-      _session = _denizen.createSession(systemPrompt: systemPrompt);
-    } catch (e) {
-      setState(() {
-        _messages.add(_ChatMsg(isUser: false, text: "Session error: $e"));
-        _isGenerating = false;
-      });
-      return;
-    }
 
     final aiMsg = _ChatMsg(isUser: false, text: "");
     setState(() { _messages.add(aiMsg); });
 
     try {
-      await for (final token in _session!.streamChat(cleanText)) {
+      await for (final token in _session!.streamChat(cleanText, directChunks: chunks)) {
         setState(() { aiMsg.text += token; });
         _scrollToBottom();
       }
