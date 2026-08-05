@@ -2,10 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:denizen_ai/denizen_ai.dart';
-import 'package:denizen_ai/src/models/default_offline_models.dart';
-import 'package:denizen_ai/src/rag/tflite_embedding_provider.dart';
-import 'package:denizen_ai/src/rag/vector_storage_service.dart';
-import 'package:denizen_ai/src/rag/document_ingestion_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -958,7 +954,6 @@ class _RagTabState extends State<RagTab> {
       ),
     );
   }
-}
 }
 
 // ============================================================================
