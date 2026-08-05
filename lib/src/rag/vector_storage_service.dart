@@ -178,6 +178,30 @@ class VectorStorageService {
     return results;
   }
 
+  /// Fetches text chunks directly from the SQLite database.
+  /// If docId is specified, fetches chunks for that document; otherwise returns recent chunks.
+  List<Map<String, dynamic>> getChunksForDocument({int? docId, int limit = 10}) {
+    if (_db == null) return [];
+
+    try {
+      final String query = docId != null
+          ? 'SELECT chunk_id, doc_id, text_content FROM document_chunks WHERE doc_id = ? ORDER BY chunk_index ASC LIMIT ?'
+          : 'SELECT chunk_id, doc_id, text_content FROM document_chunks ORDER BY chunk_id DESC LIMIT ?';
+
+      final stmt = _db!.prepare(query);
+      final resultSet = docId != null ? stmt.select([docId, limit]) : stmt.select([limit]);
+      stmt.dispose();
+
+      return resultSet.map((row) => {
+        'chunk_id': row['chunk_id'],
+        'doc_id': row['doc_id'],
+        'text_content': row['text_content'],
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Safely exports the current database to a specified destination path.
   /// Used for cloud backups and cross-device sync.
   Future<File> exportDatabase(String destinationPath) async {

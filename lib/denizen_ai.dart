@@ -828,23 +828,24 @@ class DenizenRagSession extends DenizenSession {
     this._storageService, {
     String? baseSystemPrompt,
     super.maxTokens,
-  }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful assistant.',
-       super(systemPrompt: baseSystemPrompt ?? 'You are a helpful assistant.');
+  }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful AI assistant.',
+       super(systemPrompt: baseSystemPrompt ?? 'You are a helpful AI assistant.');
 
-  /// Injects the retrieved chunks into the system prompt context.
-  void _injectKnowledge(List<Map<String, dynamic>> chunks) {
-    if (chunks.isEmpty) return;
+  /// Injects raw text chunks or retrieved vector maps into system prompt context
+  void injectKnowledgeText(List<String> rawChunks, {String? basePrompt}) {
+    if (rawChunks.isEmpty) return;
 
     final StringBuffer knowledgeBuffer = StringBuffer();
-    knowledgeBuffer.writeln(_baseSystemPrompt);
-    knowledgeBuffer.writeln('\nUse the following retrieved context to answer the user:');
+    knowledgeBuffer.writeln(basePrompt ?? _baseSystemPrompt);
+    knowledgeBuffer.writeln('\n[CRITICAL CONTEXT DOCUMENTS]');
+    knowledgeBuffer.writeln('Use the following retrieved document material as your knowledge base to answer the user question:');
     
-    for (var i = 0; i < chunks.length; i++) {
-      knowledgeBuffer.writeln('\n--- Document Snippet ${i + 1} ---');
-      knowledgeBuffer.writeln(chunks[i]['text_content']);
+    for (var i = 0; i < rawChunks.length; i++) {
+      knowledgeBuffer.writeln('\n--- Context Snippet ${i + 1} ---');
+      knowledgeBuffer.writeln(rawChunks[i]);
     }
+    knowledgeBuffer.writeln('\n[INSTRUCTION]: Answer the user question directly using ONLY the above context. If the answer is present in the context, state it clearly.');
 
-    // Replace or insert the system prompt (which is always at index 0)
     if (_history.isNotEmpty && _history.first.role == DenizenRole.system) {
       _history[0] = DenizenMessage(
         role: DenizenRole.system,
@@ -858,9 +859,22 @@ class DenizenRagSession extends DenizenSession {
     }
   }
 
+  void _injectKnowledge(List<Map<String, dynamic>> chunks) {
+    final rawText = chunks
+        .map((c) => c['text_content']?.toString() ?? '')
+        .where((t) => t.trim().isNotEmpty)
+        .toList();
+    injectKnowledgeText(rawText);
+  }
+
   @override
-  Future<String> chat(String prompt) {
+  Future<String> chat(String prompt, {int? docId, List<String>? directChunks}) {
     return sessionQueue.run(() async {
+      if (directChunks != null && directChunks.isNotEmpty) {
+        injectKnowledgeText(directChunks);
+        return chatInternal(prompt);
+      }
+
       List<Map<String, dynamic>> chunks = [];
       try {
         final queryEmbedding = await _embeddingProvider.embed(prompt);
@@ -868,13 +882,11 @@ class DenizenRagSession extends DenizenSession {
           chunks = _storageService.search(queryEmbedding, limit: 3);
         }
         if (chunks.isEmpty) {
-          final orchestrator = DenizenOrchestrator();
-          if (orchestrator.isReady) {
-            chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-          }
+          chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
         }
       } catch (e) {
-        debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
+        debugPrint('⚠️ RAG retrieval failed: $e. Using direct database fallback.');
+        chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
       }
       
       _injectKnowledge(chunks);
@@ -883,8 +895,14 @@ class DenizenRagSession extends DenizenSession {
   }
 
   @override
-  Stream<String> streamChat(String prompt) {
+  Stream<String> streamChat(String prompt, {int? docId, List<String>? directChunks}) {
     return sessionQueue.runStream(() async* {
+      if (directChunks != null && directChunks.isNotEmpty) {
+        injectKnowledgeText(directChunks);
+        yield* streamChatInternal(prompt);
+        return;
+      }
+
       List<Map<String, dynamic>> chunks = [];
       try {
         final queryEmbedding = await _embeddingProvider.embed(prompt);
@@ -892,13 +910,11 @@ class DenizenRagSession extends DenizenSession {
           chunks = _storageService.search(queryEmbedding, limit: 3);
         }
         if (chunks.isEmpty) {
-          final orchestrator = DenizenOrchestrator();
-          if (orchestrator.isReady) {
-            chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-          }
+          chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
         }
       } catch (e) {
-        debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
+        debugPrint('⚠️ RAG retrieval failed: $e. Using direct database fallback.');
+        chunks = _storageService.getChunksForDocument(docId: docId, limit: 3);
       }
       
       _injectKnowledge(chunks);

@@ -31,6 +31,15 @@ class FakeVectorStorageService implements VectorStorageService {
   void dispose() {}
   
   @override
+  int insertDocument(String title, {String? sourceUri}) => 1;
+
+  @override
+  void deleteDocument(int docId) {}
+
+  @override
+  List<Map<String, dynamic>> getChunksForDocument({int? docId, int limit = 10}) => [];
+
+  @override
   Future<File> exportDatabase(String destinationPath) async {
     return File(destinationPath);
   }

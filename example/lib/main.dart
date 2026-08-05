@@ -746,14 +746,21 @@ class _RagTabState extends State<RagTab> {
     _scrollToBottom();
 
     try {
-      // Perform vector search manually to capture exact snippets for citations
+      // Perform vector search with fallback to direct document chunks
       List<String> snippets = [];
-      if (_embeddingProvider != null && _storageService != null && _storageService!.isInitialized) {
+      if (_storageService != null && _storageService!.isInitialized) {
         try {
-          final queryVec = await _embeddingProvider!.embed(text);
-          final searchResults = _storageService!.search(queryVec, limit: 3);
-          snippets = searchResults.map((r) => r['text_content'].toString()).toList();
+          if (_embeddingProvider != null) {
+            final queryVec = await _embeddingProvider!.embed(text);
+            final searchResults = _storageService!.search(queryVec, limit: 3);
+            snippets = searchResults.map((r) => r['text_content'].toString()).toList();
+          }
         } catch (_) {}
+
+        if (snippets.isEmpty) {
+          final dbChunks = _storageService!.getChunksForDocument(docId: _scopedDocId, limit: 3);
+          snippets = dbChunks.map((r) => r['text_content'].toString()).toList();
+        }
       }
 
       final aiMsg = RagChatMessage(sender: "assistant", text: "", retrievedSnippets: snippets, scopedDocTitle: scopedTitle);
@@ -762,7 +769,7 @@ class _RagTabState extends State<RagTab> {
       });
 
       final stream = _ragSession != null
-          ? _ragSession!.streamChat(text)
+          ? _ragSession!.streamChat(text, docId: _scopedDocId, directChunks: snippets)
           : _denizen.engine.generateResponseStream(prompt: text);
 
       await for (final token in stream) {
