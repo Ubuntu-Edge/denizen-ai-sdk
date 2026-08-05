@@ -486,14 +486,12 @@ class _RagTabState extends State<RagTab> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
         allowMultiple: false,
+        withData: true, // Guarantees byte payload on Android Scoped Storage
       );
 
       if (result == null || result.files.isEmpty) return;
 
       final pickedFile = result.files.first;
-      if (pickedFile.path == null) return;
-
-      final sourceFile = File(pickedFile.path!);
       final name = pickedFile.name;
       final ext = pickedFile.extension?.toLowerCase() ?? '';
 
@@ -502,15 +500,22 @@ class _RagTabState extends State<RagTab> {
         _statusMessage = "Ingesting $name from phone storage...";
       });
 
-      // 1. Copy to local app documents directory
+      // 1. Copy or write bytes to app documents directory
       final appDir = await getApplicationDocumentsDirectory();
       final docsDir = Directory('${appDir.path}/denizen_documents');
       if (!await docsDir.exists()) {
         await docsDir.create(recursive: true);
       }
       final savedPath = '${docsDir.path}/$name';
-      await sourceFile.copy(savedPath);
       final savedFile = File(savedPath);
+
+      if (pickedFile.bytes != null && pickedFile.bytes!.isNotEmpty) {
+        await savedFile.writeAsBytes(pickedFile.bytes!);
+      } else if (pickedFile.path != null) {
+        await File(pickedFile.path!).copy(savedPath);
+      } else {
+        throw Exception("Unable to access file data from phone storage.");
+      }
 
       // 2. Register document in SQLite Vector Storage
       final docId = _storageService!.insertDocument(name, sourceUri: savedPath);
@@ -519,7 +524,7 @@ class _RagTabState extends State<RagTab> {
       await _ingestionService!.ingestFile(docId, savedFile);
 
       // 4. Query vector count for this document
-      final searchResults = _storageService!.search(List.filled(384, 0.1), limit: 200);
+      final searchResults = _storageService!.getChunksForDocument(docId: docId, limit: 200);
       final chunkCount = searchResults.isEmpty ? 1 : searchResults.length;
 
       DocCategory cat = DocCategory.txt;
