@@ -831,9 +831,16 @@ class DenizenRagSession extends DenizenSession {
   }) : _baseSystemPrompt = baseSystemPrompt ?? 'You are a helpful AI assistant.',
        super(systemPrompt: baseSystemPrompt ?? 'You are a helpful AI assistant.');
 
-  /// Injects raw text chunks or retrieved vector maps into system prompt context
   void injectKnowledgeText(List<String> rawChunks, {String? basePrompt}) {
-    if (rawChunks.isEmpty) return;
+    if (rawChunks.isEmpty) {
+      if (_history.isNotEmpty && _history.first.role == DenizenRole.system) {
+        _history[0] = DenizenMessage(
+          role: DenizenRole.system,
+          content: basePrompt ?? _baseSystemPrompt,
+        );
+      }
+      return;
+    }
 
     final StringBuffer knowledgeBuffer = StringBuffer();
     knowledgeBuffer.writeln(basePrompt ?? _baseSystemPrompt);
@@ -870,7 +877,7 @@ class DenizenRagSession extends DenizenSession {
   @override
   Future<String> chat(String prompt, {int? docId, List<String>? directChunks}) {
     return sessionQueue.run(() async {
-      if (directChunks != null && directChunks.isNotEmpty) {
+      if (directChunks != null) {
         injectKnowledgeText(directChunks);
         return chatInternal(prompt);
       }
@@ -897,7 +904,7 @@ class DenizenRagSession extends DenizenSession {
   @override
   Stream<String> streamChat(String prompt, {int? docId, List<String>? directChunks}) {
     return sessionQueue.runStream(() async* {
-      if (directChunks != null && directChunks.isNotEmpty) {
+      if (directChunks != null) {
         injectKnowledgeText(directChunks);
         yield* streamChatInternal(prompt);
         return;
