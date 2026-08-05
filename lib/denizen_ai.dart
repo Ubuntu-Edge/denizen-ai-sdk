@@ -616,6 +616,10 @@ class DenizenSession {
   final List<DenizenMessage> _history = [];
   final int? _maxTokensOverride;
 
+  /// Sequential queue to ensure chat turns execute in strict FIFO order
+  @protected
+  final AsyncSequentialQueue sessionQueue = AsyncSequentialQueue();
+
   /// Get the current message history in this session.
   List<DenizenMessage> get history => List.unmodifiable(_history);
 
@@ -719,8 +723,9 @@ class DenizenSession {
     )).toList();
   }
 
-  /// Send a non-streaming message to the model within this session.
-  Future<String> chat(String prompt) async {
+  /// Internal non-streaming turn execution (protected for subclasses).
+  @protected
+  Future<String> chatInternal(String prompt) async {
     final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
     _history.add(userMessage);
 
@@ -749,8 +754,9 @@ class DenizenSession {
     }
   }
 
-  /// Send a streaming message to the model within this session.
-  Stream<String> streamChat(String prompt) async* {
+  /// Internal streaming turn execution (protected for subclasses).
+  @protected
+  Stream<String> streamChatInternal(String prompt) async* {
     final userMessage = DenizenMessage(role: DenizenRole.user, content: prompt);
     _history.add(userMessage);
 
@@ -789,6 +795,16 @@ class DenizenSession {
       }
       // If cancelled/failed, we discard the partial reply to protect history cleanliness.
     }
+  }
+
+  /// Send a non-streaming message to the model within this session.
+  Future<String> chat(String prompt) {
+    return sessionQueue.run(() => chatInternal(prompt));
+  }
+
+  /// Send a streaming message to the model within this session.
+  Stream<String> streamChat(String prompt) {
+    return sessionQueue.runStream(() => streamChatInternal(prompt));
   }
 
   /// Alias for [chat]. Send a non-streaming message to the model.
@@ -838,45 +854,49 @@ class DenizenRagSession extends DenizenSession {
   }
 
   @override
-  Future<String> chat(String prompt) async {
-    // 1. Embed the user prompt
-    final queryEmbedding = await _embeddingProvider.embed(prompt);
-    
-    // 2. Retrieve relevant chunks (using background orchestrator if available)
-    final orchestrator = DenizenOrchestrator();
-    List<Map<String, dynamic>> chunks;
-    if (orchestrator.isReady) {
-      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-    } else {
-      chunks = _storageService.search(queryEmbedding, limit: 3);
-    }
-    
-    // 3. Inject into context
-    _injectKnowledge(chunks);
+  Future<String> chat(String prompt) {
+    return sessionQueue.run(() async {
+      // 1. Embed the user prompt
+      final queryEmbedding = await _embeddingProvider.embed(prompt);
+      
+      // 2. Retrieve relevant chunks (using background orchestrator if available)
+      final orchestrator = DenizenOrchestrator();
+      List<Map<String, dynamic>> chunks;
+      if (orchestrator.isReady) {
+        chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+      } else {
+        chunks = _storageService.search(queryEmbedding, limit: 3);
+      }
+      
+      // 3. Inject into context
+      _injectKnowledge(chunks);
 
-    // 4. Proceed with standard chat
-    return super.chat(prompt);
+      // 4. Proceed with standard chat
+      return chatInternal(prompt);
+    });
   }
 
   @override
-  Stream<String> streamChat(String prompt) async* {
-    // 1. Embed the user prompt
-    final queryEmbedding = await _embeddingProvider.embed(prompt);
-    
-    // 2. Retrieve relevant chunks (using background orchestrator if available)
-    final orchestrator = DenizenOrchestrator();
-    List<Map<String, dynamic>> chunks;
-    if (orchestrator.isReady) {
-      chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-    } else {
-      chunks = _storageService.search(queryEmbedding, limit: 3);
-    }
-    
-    // 3. Inject into context
-    _injectKnowledge(chunks);
+  Stream<String> streamChat(String prompt) {
+    return sessionQueue.runStream(() async* {
+      // 1. Embed the user prompt
+      final queryEmbedding = await _embeddingProvider.embed(prompt);
+      
+      // 2. Retrieve relevant chunks (using background orchestrator if available)
+      final orchestrator = DenizenOrchestrator();
+      List<Map<String, dynamic>> chunks;
+      if (orchestrator.isReady) {
+        chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+      } else {
+        chunks = _storageService.search(queryEmbedding, limit: 3);
+      }
+      
+      // 3. Inject into context
+      _injectKnowledge(chunks);
 
-    // 4. Proceed with standard streaming chat
-    yield* super.streamChat(prompt);
+      // 4. Proceed with standard streaming chat
+      yield* streamChatInternal(prompt);
+    });
   }
 }
 

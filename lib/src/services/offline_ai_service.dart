@@ -41,6 +41,9 @@ class OfflineAIService {
   /// Flag to stop generation
   bool _stopRequested = false;
 
+  /// Sequential queue to prevent concurrent engine access
+  final AsyncSequentialQueue _executionQueue = AsyncSequentialQueue();
+
   /// Initialize service
   Future<void> initialize() async {
     debugPrint('✅ OfflineAIService initialized');
@@ -174,43 +177,45 @@ class OfflineAIService {
     int topK = 40,
     double repeatPenalty = 1.1,
     List<String>? stopSequences,
-  }) async {
-    if (!_isModelLoaded || _controller == null) {
-      return 'Error: No model loaded. Please load an offline AI model first.';
-    }
+  }) {
+    return _executionQueue.run(() async {
+      if (!_isModelLoaded || _controller == null) {
+        return 'Error: No model loaded. Please load an offline AI model first.';
+      }
 
-    try {
-      final StringBuffer result = StringBuffer();
-      
-      final stream = _controller!.generate(
-        prompt: prompt,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
-      
-      await for (final token in stream) {
-        result.write(token);
+      try {
+        final StringBuffer result = StringBuffer();
         
-        // Check for stop sequences manually
-        if (stopSequences != null) {
-          final current = result.toString();
-          for (final stopSeq in stopSequences) {
-            if (current.contains(stopSeq)) {
-              await _controller!.stop();
-              return current.split(stopSeq).first;
+        final stream = _controller!.generate(
+          prompt: prompt,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
+        
+        await for (final token in stream) {
+          result.write(token);
+          
+          // Check for stop sequences manually
+          if (stopSequences != null) {
+            final current = result.toString();
+            for (final stopSeq in stopSequences) {
+              if (current.contains(stopSeq)) {
+                await _controller!.stop();
+                return current.split(stopSeq).first;
+              }
             }
           }
         }
+        
+        return result.toString();
+      } catch (e) {
+        debugPrint('❌ Generation error: $e');
+        return 'Error during generation: $e';
       }
-      
-      return result.toString();
-    } catch (e) {
-      debugPrint('❌ Generation error: $e');
-      return 'Error during generation: $e';
-    }
+    });
   }
 
   /// Generate response (non-streaming) with chat prompt formatting
@@ -222,42 +227,44 @@ class OfflineAIService {
     double topP = 0.95,
     int topK = 40,
     double repeatPenalty = 1.1,
-  }) async {
-    if (!_isModelLoaded || _controller == null) {
-      return 'Error: No model loaded. Please load an offline AI model first.';
-    }
-    
-    try {
-      final StringBuffer result = StringBuffer();
-      final messages = [
-        ChatMessage(
-          role: 'system',
-          content: systemPrompt ?? 'You are a helpful medical assistant for Community Health Workers.',
-        ),
-        ChatMessage(
-          role: 'user',
-          content: prompt,
-        ),
-      ];
-      
-      final stream = _controller!.generateChat(
-        messages: messages,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
-      
-      await for (final token in stream) {
-        result.write(token);
+  }) {
+    return _executionQueue.run(() async {
+      if (!_isModelLoaded || _controller == null) {
+        return 'Error: No model loaded. Please load an offline AI model first.';
       }
       
-      return result.toString();
-    } catch (e) {
-      debugPrint('❌ Generation error: $e');
-      return 'Error during generation: $e';
-    }
+      try {
+        final StringBuffer result = StringBuffer();
+        final messages = [
+          ChatMessage(
+            role: 'system',
+            content: systemPrompt ?? 'You are a helpful medical assistant for Community Health Workers.',
+          ),
+          ChatMessage(
+            role: 'user',
+            content: prompt,
+          ),
+        ];
+        
+        final stream = _controller!.generateChat(
+          messages: messages,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
+        
+        await for (final token in stream) {
+          result.write(token);
+        }
+        
+        return result.toString();
+      } catch (e) {
+        debugPrint('❌ Generation error: $e');
+        return 'Error during generation: $e';
+      }
+    });
   }
 
   /// Generate response (non-streaming) with full chat history
@@ -268,31 +275,33 @@ class OfflineAIService {
     double topP = 0.95,
     int topK = 40,
     double repeatPenalty = 1.1,
-  }) async {
-    if (!_isModelLoaded || _controller == null) {
-      return 'Error: No model loaded. Please load an offline AI model first.';
-    }
-    
-    try {
-      final StringBuffer result = StringBuffer();
-      final stream = _controller!.generateChat(
-        messages: messages,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
-      
-      await for (final token in stream) {
-        result.write(token);
+  }) {
+    return _executionQueue.run(() async {
+      if (!_isModelLoaded || _controller == null) {
+        return 'Error: No model loaded. Please load an offline AI model first.';
       }
       
-      return result.toString();
-    } catch (e) {
-      debugPrint('❌ Generation error: $e');
-      return 'Error during generation: $e';
-    }
+      try {
+        final StringBuffer result = StringBuffer();
+        final stream = _controller!.generateChat(
+          messages: messages,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
+        
+        await for (final token in stream) {
+          result.write(token);
+        }
+        
+        return result.toString();
+      } catch (e) {
+        debugPrint('❌ Generation error: $e');
+        return 'Error during generation: $e';
+      }
+    });
   }
 
   /// Generate response with streaming and full chat history
@@ -303,38 +312,39 @@ class OfflineAIService {
     double topP = 0.95,
     int topK = 40,
     double repeatPenalty = 1.1,
-  }) async* {
-    if (!_isModelLoaded || _controller == null) {
-      yield 'Error: No model loaded. Please load an offline AI model first.';
-      return;
-    }
-
-    _stopRequested = false;
-    
-    try {
-      final stream = _controller!.generateChat(
-        messages: messages,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
-      
-      await for (final token in stream) {
-        if (_stopRequested) {
-          debugPrint('⚠️ Generation stopped by user');
-          await _controller!.stop();
-          break;
-        }
-        yield token;
+  }) {
+    return _executionQueue.runStream(() async* {
+      if (!_isModelLoaded || _controller == null) {
+        yield 'Error: No model loaded. Please load an offline AI model first.';
+        return;
       }
-    } catch (e) {
-      debugPrint('❌ Streaming generation error: $e');
-      yield '\n\nError during generation: $e';
-    }
-  }
 
+      _stopRequested = false;
+      
+      try {
+        final stream = _controller!.generateChat(
+          messages: messages,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
+        
+        await for (final token in stream) {
+          if (_stopRequested) {
+            debugPrint('⚠️ Generation stopped by user');
+            await _controller!.stop();
+            break;
+          }
+          yield token;
+        }
+      } catch (e) {
+        debugPrint('❌ Streaming generation error: $e');
+        yield '\n\nError during generation: $e';
+      }
+    });
+  }
 
   /// Generate text with streaming
   Stream<String> generateStream({
@@ -345,52 +355,54 @@ class OfflineAIService {
     int topK = 40,
     double repeatPenalty = 1.1,
     List<String>? stopSequences,
-  }) async* {
-    if (!_isModelLoaded || _controller == null) {
-      yield 'Error: No model loaded. Please load an offline AI model first.';
-      return;
-    }
+  }) {
+    return _executionQueue.runStream(() async* {
+      if (!_isModelLoaded || _controller == null) {
+        yield 'Error: No model loaded. Please load an offline AI model first.';
+        return;
+      }
 
-    _stopRequested = false;
-    
-    try {
-      final stream = _controller!.generate(
-        prompt: prompt,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
+      _stopRequested = false;
       
-      final StringBuffer accumulated = StringBuffer();
-      
-      await for (final token in stream) {
-        if (_stopRequested) {
-          debugPrint('⚠️ Generation stopped by user');
-          await _controller!.stop();
-          break;
-        }
+      try {
+        final stream = _controller!.generate(
+          prompt: prompt,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
         
-        accumulated.write(token);
+        final StringBuffer accumulated = StringBuffer();
         
-        // Check for stop sequences manually
-        if (stopSequences != null) {
-          final current = accumulated.toString();
-          for (final stopSeq in stopSequences) {
-            if (current.contains(stopSeq)) {
-              await _controller!.stop();
-              return;
+        await for (final token in stream) {
+          if (_stopRequested) {
+            debugPrint('⚠️ Generation stopped by user');
+            await _controller!.stop();
+            break;
+          }
+          
+          accumulated.write(token);
+          
+          // Check for stop sequences manually
+          if (stopSequences != null) {
+            final current = accumulated.toString();
+            for (final stopSeq in stopSequences) {
+              if (current.contains(stopSeq)) {
+                await _controller!.stop();
+                return;
+              }
             }
           }
+          
+          yield token;
         }
-        
-        yield token;
+      } catch (e) {
+        debugPrint('❌ Streaming generation error: $e');
+        yield '\n\nError during generation: $e';
       }
-    } catch (e) {
-      debugPrint('❌ Streaming generation error: $e');
-      yield '\n\nError during generation: $e';
-    }
+    });
   }
 
   /// Generate response with streaming and chat formatting
@@ -402,47 +414,49 @@ class OfflineAIService {
     double topP = 0.95,
     int topK = 40,
     double repeatPenalty = 1.1,
-  }) async* {
-    if (!_isModelLoaded || _controller == null) {
-      yield 'Error: No model loaded. Please load an offline AI model first.';
-      return;
-    }
-
-    _stopRequested = false;
-    
-    try {
-      final messages = [
-        ChatMessage(
-          role: 'system',
-          content: systemPrompt ?? 'You are a helpful medical assistant for Community Health Workers. Provide clear, evidence-based medical guidance.',
-        ),
-        ChatMessage(
-          role: 'user',
-          content: prompt,
-        ),
-      ];
-      
-      final stream = _controller!.generateChat(
-        messages: messages,
-        maxTokens: maxTokens,
-        temperature: temperature,
-        topP: topP,
-        topK: topK,
-        repeatPenalty: repeatPenalty,
-      );
-      
-      await for (final token in stream) {
-        if (_stopRequested) {
-          debugPrint('⚠️ Generation stopped by user');
-          await _controller!.stop();
-          break;
-        }
-        yield token;
+  }) {
+    return _executionQueue.runStream(() async* {
+      if (!_isModelLoaded || _controller == null) {
+        yield 'Error: No model loaded. Please load an offline AI model first.';
+        return;
       }
-    } catch (e) {
-      debugPrint('❌ Streaming generation error: $e');
-      yield '\n\nError during generation: $e';
-    }
+
+      _stopRequested = false;
+      
+      try {
+        final messages = [
+          ChatMessage(
+            role: 'system',
+            content: systemPrompt ?? 'You are a helpful medical assistant for Community Health Workers. Provide clear, evidence-based medical guidance.',
+          ),
+          ChatMessage(
+            role: 'user',
+            content: prompt,
+          ),
+        ];
+        
+        final stream = _controller!.generateChat(
+          messages: messages,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          topP: topP,
+          topK: topK,
+          repeatPenalty: repeatPenalty,
+        );
+        
+        await for (final token in stream) {
+          if (_stopRequested) {
+            debugPrint('⚠️ Generation stopped by user');
+            await _controller!.stop();
+            break;
+          }
+          yield token;
+        }
+      } catch (e) {
+        debugPrint('❌ Streaming generation error: $e');
+        yield '\n\nError during generation: $e';
+      }
+    });
   }
 
   /// Generate with token batching for smoother UI updates
@@ -550,3 +564,51 @@ class OfflineAIService {
     await unloadModel();
   }
 }
+
+/// A simple FIFO queue to ensure asynchronous operations run sequentially.
+class AsyncSequentialQueue {
+  Future<void>? _last;
+
+  /// Executes [task] sequentially once all previous tasks in the queue have completed.
+  Future<T> run<T>(Future<T> Function() task) async {
+    final previous = _last;
+    final completer = Completer<void>();
+    _last = completer.future;
+
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {
+        // Continue even if previous task failed
+      }
+    }
+
+    try {
+      return await task();
+    } finally {
+      completer.complete();
+    }
+  }
+
+  /// Executes a streaming task [taskBuilder] sequentially once all previous tasks in the queue have completed.
+  Stream<T> runStream<T>(Stream<T> Function() taskBuilder) async* {
+    final previous = _last;
+    final completer = Completer<void>();
+    _last = completer.future;
+
+    if (previous != null) {
+      try {
+        await previous;
+      } catch (_) {
+        // Continue even if previous task failed
+      }
+    }
+
+    try {
+      yield* taskBuilder();
+    } finally {
+      completer.complete();
+    }
+  }
+}
+
