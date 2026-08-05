@@ -89,13 +89,23 @@ void main() {
       );
     });
 
-    test('throws UnsupportedError for unsupported extensions', () async {
-      final file = File('${tempDir.path}/test.bin');
-      await file.writeAsString('binary content');
+    test('ingests .pdf file content successfully via text extraction', () async {
+      final file = File('${tempDir.path}/test.pdf');
+      await file.writeAsString('(Hello from PDF document context) Tj');
+
+      await ingestionService.ingestFile(104, file);
+
+      expect(fakeStorageService.insertedChunks, isNotEmpty);
+      expect(fakeStorageService.insertedChunks.first['docId'], equals(104));
+    });
+
+    test('throws FormatException for completely empty file', () async {
+      final file = File('${tempDir.path}/empty.bin');
+      await file.writeAsBytes([]);
 
       expect(
-        () async => await ingestionService.ingestFile(104, file),
-        throwsA(isA<UnsupportedError>()),
+        () async => await ingestionService.ingestFile(105, file),
+        throwsA(isA<FormatException>()),
       );
     });
   });

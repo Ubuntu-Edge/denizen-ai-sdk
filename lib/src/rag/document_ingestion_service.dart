@@ -76,7 +76,7 @@ class DocumentIngestionService {
 
   String _extractPrintableStrings(List<int> bytes) {
     final rawStr = String.fromCharCodes(bytes);
-    final asciiRegex = RegExp(r'[A-Za-z0-9\s.,!?:;()\'"-]{4,}');
+    final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
     final StringBuffer sb = StringBuffer();
 
     for (final m in asciiRegex.allMatches(rawStr)) {
