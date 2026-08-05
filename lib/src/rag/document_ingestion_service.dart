@@ -9,8 +9,8 @@ class DocumentIngestionService {
 
   DocumentIngestionService(this._embeddingProvider, this._storageService);
 
-  /// Ingests a raw file directly (.txt, .md, .json, .csv, .log).
-  /// Reads the text content and processes it into the vector database.
+  /// Ingests a raw file directly (.txt, .md, .pdf, .json, .csv, .log, etc.).
+  /// Reads or extracts the text content and processes it into the vector database.
   Future<void> ingestFile(int docId, File file, {
     int chunkSizeWords = 200,
     int overlapWords = 30,
@@ -20,13 +20,78 @@ class DocumentIngestionService {
     }
 
     final ext = p.extension(file.path).toLowerCase();
-    final allowedExts = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.yaml', '.yml'];
-    if (!allowedExts.contains(ext) && ext.isNotEmpty) {
-      throw UnsupportedError("File format '$ext' is not natively supported for raw text extraction. Please supply extracted text directly via ingestText.");
+    String content = '';
+
+    if (ext == '.pdf') {
+      final bytes = await file.readAsBytes();
+      content = _extractTextFromPdfBytes(bytes);
+    } else {
+      try {
+        content = await file.readAsString();
+      } catch (_) {
+        final bytes = await file.readAsBytes();
+        content = _extractPrintableStrings(bytes);
+      }
     }
 
-    final content = await file.readAsString();
+    if (content.trim().isEmpty) {
+      throw FormatException("Could not extract readable text from file '${p.basename(file.path)}'.");
+    }
+
     return ingestText(docId, content, chunkSizeWords: chunkSizeWords, overlapWords: overlapWords);
+  }
+
+  String _extractTextFromPdfBytes(List<int> bytes) {
+    final rawStr = String.fromCharCodes(bytes);
+    final StringBuffer sb = StringBuffer();
+
+    final tjRegex = RegExp(r'\(([^)]+)\)\s*Tj', multiLine: true);
+    for (final m in tjRegex.allMatches(rawStr)) {
+      final g = m.group(1);
+      if (g != null && g.trim().isNotEmpty) {
+        sb.writeln(g.trim());
+      }
+    }
+
+    final arrayTjRegex = RegExp(r'\[\s*(((?:\([^)]+\)\s*|-?\d+\s*)+))\]\s*TJ', multiLine: true);
+    for (final m in arrayTjRegex.allMatches(rawStr)) {
+      final rawGroup = m.group(1) ?? '';
+      final innerRegex = RegExp(r'\(([^)]+)\)');
+      for (final inner in innerRegex.allMatches(rawGroup)) {
+        final text = inner.group(1);
+        if (text != null && text.trim().isNotEmpty) {
+          sb.write(text.trim());
+          sb.write(' ');
+        }
+      }
+      sb.writeln();
+    }
+
+    if (sb.length < 50) {
+      return _extractPrintableStrings(bytes);
+    }
+
+    return sb.toString();
+  }
+
+  String _extractPrintableStrings(List<int> bytes) {
+    final rawStr = String.fromCharCodes(bytes);
+    final asciiRegex = RegExp(r'[A-Za-z0-9\s.,!?:;()\'"-]{4,}');
+    final StringBuffer sb = StringBuffer();
+
+    for (final m in asciiRegex.allMatches(rawStr)) {
+      final s = m.group(0)!.trim();
+      if (s.length >= 4 &&
+          !s.startsWith('/Font') &&
+          !s.startsWith('/ProcSet') &&
+          !s.startsWith('/Type') &&
+          !s.startsWith('/Catalog') &&
+          !s.startsWith('/Pages')) {
+        sb.writeln(s);
+      }
+    }
+
+    return sb.toString();
   }
 
   /// Ingests a raw text document by splitting it into overlapping chunks,
