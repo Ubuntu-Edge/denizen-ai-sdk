@@ -864,11 +864,14 @@ class DenizenRagSession extends DenizenSession {
       List<Map<String, dynamic>> chunks = [];
       try {
         final queryEmbedding = await _embeddingProvider.embed(prompt);
-        final orchestrator = DenizenOrchestrator();
-        if (orchestrator.isReady) {
-          chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-        } else if (_storageService.isInitialized) {
+        if (_storageService.isInitialized) {
           chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+        if (chunks.isEmpty) {
+          final orchestrator = DenizenOrchestrator();
+          if (orchestrator.isReady) {
+            chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+          }
         }
       } catch (e) {
         debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
@@ -885,11 +888,14 @@ class DenizenRagSession extends DenizenSession {
       List<Map<String, dynamic>> chunks = [];
       try {
         final queryEmbedding = await _embeddingProvider.embed(prompt);
-        final orchestrator = DenizenOrchestrator();
-        if (orchestrator.isReady) {
-          chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
-        } else if (_storageService.isInitialized) {
+        if (_storageService.isInitialized) {
           chunks = _storageService.search(queryEmbedding, limit: 3);
+        }
+        if (chunks.isEmpty) {
+          final orchestrator = DenizenOrchestrator();
+          if (orchestrator.isReady) {
+            chunks = await orchestrator.searchVector(queryEmbedding, limit: 3);
+          }
         }
       } catch (e) {
         debugPrint('⚠️ RAG retrieval failed: $e. Falling back to base system context.');
