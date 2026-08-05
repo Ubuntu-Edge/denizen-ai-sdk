@@ -332,159 +332,73 @@ class _ChatTabState extends State<ChatTab> {
 // ============================================================================
 
 enum DocCategory { all, pdf, docx, txt, custom }
+  // ── Fast Synchronous Ingestion & Chunking ──────────────────────────
 
-class _ParsePayload {
-  final List<int> bytes;
-  final String ext;
-  _ParsePayload(this.bytes, this.ext);
-}
-
-/// Offloads file reading, regex parsing, text extraction, and chunking to a background Isolate thread.
-/// Keeps the Flutter UI thread running buttery smooth at 60 FPS without hanging or freezing!
-List<String> _extractAndChunkInBackground(_ParsePayload payload) {
-  final bytes = payload.bytes;
-  final ext = payload.ext;
-
-  String text = "";
-  if (ext == 'pdf') {
-    final raw = String.fromCharCodes(bytes);
-    final sb = StringBuffer();
-    final tjRegex = RegExp(r'\(([^)]+)\)\s*Tj');
-    for (final m in tjRegex.allMatches(raw)) {
-      final g = m.group(1);
-      if (g != null && g.trim().length > 1) {
-        sb.writeln(g.trim());
-      }
-    }
-    if (sb.length < 50) {
-      final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
-      for (final m in asciiRegex.allMatches(raw)) {
-        final s = m.group(0)!.trim();
-        if (s.length >= 4 &&
-            !s.startsWith('/Font') &&
-            !s.startsWith('/Type') &&
-            !s.startsWith('/Catalog') &&
-            !s.startsWith('/Pages')) {
-          sb.writeln(s);
-        }
-      }
-    }
-    text = sb.toString();
-  } else {
-    try {
-      text = String.fromCharCodes(bytes).trim();
-    } catch (_) {
+  List<String> _extractAndChunkFast(List<int> bytes, String ext) {
+    String text = "";
+    if (ext == 'pdf') {
       final raw = String.fromCharCodes(bytes);
       final sb = StringBuffer();
-      final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
-      for (final m in asciiRegex.allMatches(raw)) {
-        final s = m.group(0)!.trim();
-        if (s.length >= 4 &&
-            !s.startsWith('/Font') &&
-            !s.startsWith('/Type') &&
-            !s.startsWith('/Catalog') &&
-            !s.startsWith('/Pages')) {
-          sb.writeln(s);
+      final tjRegex = RegExp(r'\(([^)]+)\)\s*Tj');
+      for (final m in tjRegex.allMatches(raw)) {
+        final g = m.group(1);
+        if (g != null && g.trim().length > 1) {
+          sb.writeln(g.trim());
+        }
+      }
+      if (sb.length < 50) {
+        final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
+        for (final m in asciiRegex.allMatches(raw)) {
+          final s = m.group(0)!.trim();
+          if (s.length >= 4 &&
+              !s.startsWith('/Font') &&
+              !s.startsWith('/Type') &&
+              !s.startsWith('/Catalog') &&
+              !s.startsWith('/Pages')) {
+            sb.writeln(s);
+          }
         }
       }
       text = sb.toString();
+    } else {
+      try {
+        text = String.fromCharCodes(bytes).trim();
+      } catch (_) {
+        final raw = String.fromCharCodes(bytes);
+        final sb = StringBuffer();
+        final asciiRegex = RegExp(r"[A-Za-z0-9\s.,!?:;()'-]{4,}");
+        for (final m in asciiRegex.allMatches(raw)) {
+          final s = m.group(0)!.trim();
+          if (s.length >= 4 &&
+              !s.startsWith('/Font') &&
+              !s.startsWith('/Type') &&
+              !s.startsWith('/Catalog') &&
+              !s.startsWith('/Pages')) {
+            sb.writeln(s);
+          }
+        }
+        text = sb.toString();
+      }
     }
-  }
 
-  if (text.trim().isEmpty) return [];
+    if (text.trim().isEmpty) return [];
 
-  // Fast 150-word sliding window chunking
-  final words = text.split(RegExp(r'\s+'));
-  final List<String> chunks = [];
-  int start = 0;
-  const size = 150;
-  const overlap = 25;
+    final words = text.split(RegExp(r'\s+'));
+    final List<String> chunks = [];
+    int start = 0;
+    const size = 150;
+    const overlap = 25;
 
-  while (start < words.length) {
-    final end = (start + size).clamp(0, words.length);
-    chunks.add(words.sublist(start, end).join(' '));
-    if (end == words.length) break;
-    start += size - overlap;
-    if (chunks.length >= 100) break; // Limit to 100 max chunks for safety
-  }
-
-  return chunks;
-}
-
-/// One ingested document held entirely in memory — same as Ubuntu Elimu Document model.
-class _DocEntry {
-  final String id;
-  final String title;
-  final DocCategory category;
-  final int sizeBytes;
-  final DateTime addedAt;
-  final List<String> chunks;
-
-  _DocEntry({
-    required this.id,
-    required this.title,
-    required this.category,
-    required this.sizeBytes,
-    required this.addedAt,
-    required this.chunks,
-  });
-
-  String get sizeLabel {
-    if (sizeBytes < 1024) return '${sizeBytes} B';
-    if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).toStringAsFixed(1)} KB';
-    return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  IconData get icon {
-    switch (category) {
-      case DocCategory.pdf:    return Icons.picture_as_pdf;
-      case DocCategory.docx:   return Icons.description;
-      case DocCategory.txt:    return Icons.article;
-      case DocCategory.custom: return Icons.sticky_note_2;
-      default:                 return Icons.insert_drive_file;
+    while (start < words.length) {
+      final end = (start + size).clamp(0, words.length);
+      chunks.add(words.sublist(start, end).join(' '));
+      if (end == words.length) break;
+      start += size - overlap;
+      if (chunks.length >= 100) break;
     }
+
+    return chunks;
   }
-
-  Color get color {
-    switch (category) {
-      case DocCategory.pdf:    return Colors.redAccent;
-      case DocCategory.docx:  return Colors.blueAccent;
-      case DocCategory.txt:   return Colors.greenAccent;
-      case DocCategory.custom: return Colors.purpleAccent;
-      default:                 return Colors.cyanAccent;
-    }
-  }
-}
-
-class _ChatMsg {
-  final bool isUser;
-  final bool isSystem;
-  String text;
-  _ChatMsg({required this.isUser, this.isSystem = false, required this.text});
-}
-
-class RagTab extends StatefulWidget {
-  const RagTab({super.key});
-  @override
-  State<RagTab> createState() => _RagTabState();
-}
-
-class _RagTabState extends State<RagTab> {
-  final DenizenAI _denizen = DenizenAI();
-  DenizenSession? _session;
-
-  // In-memory document store — same concept as Ubuntu Elimu's _documents list
-  final List<_DocEntry> _docs = [];
-  String? _activDocId;
-
-  final List<_ChatMsg> _messages = [];
-  final TextEditingController _promptCtrl = TextEditingController();
-  final ScrollController _scrollCtrl = ScrollController();
-
-  bool _isIngesting = false;
-  bool _isGenerating = false;
-
-  // ── Background Isolate Text Extraction & Chunking ──────────────────────────
 
   Future<void> _pickAndIngest() async {
     try {
@@ -510,9 +424,7 @@ class _RagTabState extends State<RagTab> {
         throw Exception("Could not read file.");
       }
 
-      // Offload text extraction and chunking to background Isolate thread (compute)
-      // This keeps Flutter UI thread 60 FPS smooth without freezing or hanging!
-      final chunks = await compute(_extractAndChunkInBackground, _ParsePayload(bytes, ext));
+      final chunks = _extractAndChunkFast(bytes, ext);
       if (chunks.isEmpty) throw Exception("No readable text found in '$name'.");
 
       DocCategory cat = DocCategory.txt;
