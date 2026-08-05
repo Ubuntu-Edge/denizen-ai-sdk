@@ -716,13 +716,6 @@ class _RagTabState extends State<RagTab> {
     final text = _promptController.text.trim();
     if (text.isEmpty) return;
 
-    if (!_denizen.isModelLoaded) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please load an offline model first in the Models tab.')),
-      );
-      return;
-    }
-
     _promptController.clear();
 
     String? scopedTitle;
@@ -743,6 +736,23 @@ class _RagTabState extends State<RagTab> {
       if (doc.docId != -1) scopedTitle = doc.title;
     }
 
+    // Retrieve context snippets from vector DB / SQLite storage
+    List<String> snippets = [];
+    if (_storageService != null && _storageService!.isInitialized) {
+      try {
+        if (_embeddingProvider != null) {
+          final queryVec = await _embeddingProvider!.embed(text);
+          final searchResults = _storageService!.search(queryVec, limit: 3);
+          snippets = searchResults.map((r) => r['text_content'].toString()).toList();
+        }
+      } catch (_) {}
+
+      if (snippets.isEmpty) {
+        final dbChunks = _storageService!.getChunksForDocument(docId: _scopedDocId, limit: 3);
+        snippets = dbChunks.map((r) => r['text_content'].toString()).toList();
+      }
+    }
+
     setState(() {
       _messages.add(RagChatMessage(sender: "user", text: text, scopedDocTitle: scopedTitle));
       _isGenerating = true;
@@ -750,24 +760,27 @@ class _RagTabState extends State<RagTab> {
 
     _scrollToBottom();
 
-    try {
-      // Perform vector search with fallback to direct document chunks
-      List<String> snippets = [];
-      if (_storageService != null && _storageService!.isInitialized) {
-        try {
-          if (_embeddingProvider != null) {
-            final queryVec = await _embeddingProvider!.embed(text);
-            final searchResults = _storageService!.search(queryVec, limit: 3);
-            snippets = searchResults.map((r) => r['text_content'].toString()).toList();
-          }
-        } catch (_) {}
-
-        if (snippets.isEmpty) {
-          final dbChunks = _storageService!.getChunksForDocument(docId: _scopedDocId, limit: 3);
-          snippets = dbChunks.map((r) => r['text_content'].toString()).toList();
-        }
+    // If an offline GGUF model is NOT loaded yet, use Instant Document Reader mode
+    if (!_denizen.isModelLoaded) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      String directAnswer = "";
+      if (snippets.isNotEmpty) {
+        final contextStr = snippets.join("\n\n");
+        directAnswer = "📄 [Direct Document Context Answer]:\n$contextStr\n\n💡 Tip: Download a GGUF model in the 'Models' tab for full LLM conversational synthesis!";
+      } else {
+        directAnswer = "⚠️ No document context found for your query. Upload a document (PDF/TXT) or add a custom note first!";
       }
 
+      final aiMsg = RagChatMessage(sender: "assistant", text: directAnswer, retrievedSnippets: snippets, scopedDocTitle: scopedTitle);
+      setState(() {
+        _messages.add(aiMsg);
+        _isGenerating = false;
+      });
+      _scrollToBottom();
+      return;
+    }
+
+    try {
       final aiMsg = RagChatMessage(sender: "assistant", text: "", retrievedSnippets: snippets, scopedDocTitle: scopedTitle);
       setState(() {
         _messages.add(aiMsg);
