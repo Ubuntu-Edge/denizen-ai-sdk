@@ -372,7 +372,8 @@ class _ChatMsg {
   final bool isUser;
   final bool isSystem;
   String text;
-  _ChatMsg({required this.isUser, required this.text, this.isSystem = false});
+  double? generationSeconds;
+  _ChatMsg({required this.isUser, required this.text, this.isSystem = false, this.generationSeconds});
 }
 
 class RagTab extends StatefulWidget {
@@ -647,11 +648,16 @@ class _RagTabState extends State<RagTab> {
     final aiMsg = _ChatMsg(isUser: false, text: "");
     setState(() { _messages.add(aiMsg); });
 
+    final sw = Stopwatch()..start();
     try {
       await for (final token in _session!.streamChat(cleanText, directChunks: chunks)) {
         setState(() { aiMsg.text += token; });
         _scrollToBottom();
       }
+      sw.stop();
+      setState(() {
+        aiMsg.generationSeconds = sw.elapsedMilliseconds / 1000.0;
+      });
     } catch (e) {
       setState(() { aiMsg.text = "Error: $e"; });
     } finally {
@@ -800,9 +806,22 @@ class _RagTabState extends State<RagTab> {
                   color: msg.isUser ? Colors.deepPurple[700]! : Colors.grey[800]!,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Text(
-                  msg.text.isEmpty && _isGenerating ? '...' : msg.text,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      msg.text.isEmpty && _isGenerating ? '...' : msg.text,
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                    ),
+                    if (!msg.isUser && !msg.isSystem && msg.generationSeconds != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '⏱️ ${msg.generationSeconds!.toStringAsFixed(1)}s',
+                        style: TextStyle(color: Colors.cyanAccent.withOpacity(0.8), fontSize: 10, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             );
