@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:denizen_ai/denizen_ai.dart';
 import 'package:denizen_ai/src/models/default_offline_models.dart';
 import 'package:denizen_ai/src/rag/tflite_embedding_provider.dart';
@@ -74,7 +76,7 @@ class _MainDashboardState extends State<MainDashboard> {
             tabs: [
               Tab(icon: Icon(Icons.download), text: 'Models'),
               Tab(icon: Icon(Icons.chat), text: 'Chat'),
-              Tab(icon: Icon(Icons.manage_search), text: 'RAG & Tools'),
+              Tab(icon: Icon(Icons.auto_stories), text: 'RAG Chat'),
               Tab(icon: Icon(Icons.mic), text: 'Voice'),
               Tab(icon: Icon(Icons.visibility), text: 'Vision'),
             ],
@@ -321,6 +323,36 @@ class _ChatTabState extends State<ChatTab> {
 // ============================================================================
 // TAB 3: RAG & TOOLS
 // ============================================================================
+// ============================================================================
+// TAB 3: CHATGPT-STYLE DOCUMENT CHAT (RAG)
+// ============================================================================
+
+class IngestedDocumentInfo {
+  final int docId;
+  final String title;
+  final int chunkCount;
+  final DateTime ingestedAt;
+
+  IngestedDocumentInfo({
+    required this.docId,
+    required this.title,
+    required this.chunkCount,
+    required this.ingestedAt,
+  });
+}
+
+class RagChatMessage {
+  final String sender; // "user", "assistant", or "system"
+  String text;
+  final List<String> retrievedSnippets;
+
+  RagChatMessage({
+    required this.sender,
+    required this.text,
+    this.retrievedSnippets = const [],
+  });
+}
+
 class RagTab extends StatefulWidget {
   const RagTab({super.key});
 
@@ -329,78 +361,210 @@ class RagTab extends StatefulWidget {
 }
 
 class _RagTabState extends State<RagTab> {
-  bool _isIngesting = false;
-  String _status = "RAG Database ready.";
+  final DenizenAI _denizen = DenizenAI();
+  DenizenRagSession? _ragSession;
+  EmbeddingProvider? _embeddingProvider;
+  VectorStorageService? _storageService;
+  DocumentIngestionService? _ingestionService;
 
-  // Tool demonstration state
-  final DenizenToolRegistry _toolRegistry = DenizenToolRegistry();
-  bool _flashlightEnabled = false;
-  int _batteryLevel = 88;
-  String _toolLog = "No tools triggered yet.";
-  bool _isToolRunning = false;
-  final TextEditingController _toolController = TextEditingController();
+  bool _isInitializing = true;
+  bool _isIngesting = false;
+  bool _isGenerating = false;
+  String _statusMessage = "Initializing RAG Vector Engine...";
+
+  final List<IngestedDocumentInfo> _ingestedDocs = [];
+  final List<RagChatMessage> _messages = [];
+  final TextEditingController _promptController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  int _nextDocId = 1;
 
   @override
   void initState() {
     super.initState();
-    _initTools();
+    _initRagEngine();
   }
 
-  void _initTools() {
-    _toolRegistry.register(
-      BatteryTool(
-        getBatteryLevel: () => _batteryLevel,
-        logCallback: (msg) {
-          setState(() {
-            _toolLog = msg;
-          });
-        },
-      ),
-    );
+  Future<void> _initRagEngine() async {
+    try {
+      _embeddingProvider = TFLiteEmbeddingProvider();
+      await _embeddingProvider!.initialize();
 
-    _toolRegistry.register(
-      FlashlightTool(
-        setFlashlight: (enable) {
-          setState(() {
-            _flashlightEnabled = enable;
-          });
-        },
-        logCallback: (msg) {
-          setState(() {
-            _toolLog = msg;
-          });
-        },
-      ),
-    );
+      _storageService = VectorStorageService();
+      if (!_storageService!.isInitialized) {
+        await _storageService!.initialize();
+      }
+
+      _ingestionService = DocumentIngestionService(_embeddingProvider!, _storageService!);
+
+      _ragSession = _denizen.createRagSession(
+        embeddingProvider: _embeddingProvider!,
+        storageService: _storageService!,
+        baseSystemPrompt: "You are a helpful AI assistant. Answer user questions accurately based on the provided document context.",
+      );
+
+      setState(() {
+        _isInitializing = false;
+        _statusMessage = "RAG Vector DB ready. Add a document from your phone to get started.";
+      });
+    } catch (e) {
+      debugPrint("RAG init error: $e");
+      setState(() {
+        _isInitializing = false;
+        _statusMessage = "RAG Engine Init Warning: $e";
+      });
+    }
   }
 
-  Future<void> _ingestDummyDocument() async {
-    setState(() {
-      _isIngesting = true;
-      _status = "Ingesting document...";
-    });
+  /// Pick file natively from phone storage
+  Future<void> _pickAndIngestFile() async {
+    if (_ingestionService == null || _storageService == null || !_storageService!.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vector database is not ready yet.')),
+      );
+      return;
+    }
 
     try {
-      final embeddingProvider = TFLiteEmbeddingProvider();
-      await embeddingProvider.initialize();
-      
-      final storageService = VectorStorageService();
-      if (!storageService.isInitialized) {
-        await storageService.initialize();
-      }
-      
-      final ingestionService = DocumentIngestionService(embeddingProvider, storageService);
-      
-      await ingestionService.ingestText(
-        1, // docId
-        "The secret password to access the mainframe is 'Antigravity'. It was set by Ibrahim on Tuesday.",
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
       );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final path = result.files.first.path;
+      final name = result.files.first.name;
+      if (path == null) return;
+
       setState(() {
-        _status = "Document ingested successfully! Try asking the AI about the password.";
+        _isIngesting = true;
+        _statusMessage = "Ingesting $name from phone storage...";
+      });
+
+      final file = File(path);
+      final docId = _nextDocId++;
+
+      await _ingestionService!.ingestFile(docId, file);
+
+      final chunkCount = _storageService!.search(List.filled(384, 0.1), limit: 100).length;
+
+      setState(() {
+        _ingestedDocs.add(IngestedDocumentInfo(
+          docId: docId,
+          title: name,
+          chunkCount: chunkCount > 0 ? chunkCount : 1,
+          ingestedAt: DateTime.now(),
+        ));
+        _statusMessage = "Successfully ingested '$name' into local Vector DB!";
+        _messages.add(RagChatMessage(
+          sender: "system",
+          text: "📁 Document added: '$name' (Ingested into local Vector DB). You can now ask questions about it!",
+        ));
       });
     } catch (e) {
       setState(() {
-        _status = "Error: $e";
+        _statusMessage = "File ingestion error: $e";
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to ingest file: $e')),
+      );
+    } finally {
+      setState(() {
+        _isIngesting = false;
+      });
+    }
+  }
+
+  /// Paste text modal fallback
+  void _showPasteTextDialog() {
+    final titleController = TextEditingController();
+    final contentController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.edit_note, color: Colors.cyanAccent),
+              SizedBox(width: 8),
+              Text('Paste Custom Document'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Document Title (e.g. Secret Password Guide)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contentController,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'Document Content / Notes',
+                    hintText: 'Paste any text, notes, guidelines, or confidential information here...',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                final content = contentController.text.trim();
+                if (title.isEmpty || content.isEmpty) return;
+
+                Navigator.pop(context);
+                await _ingestRawText(title, content);
+              },
+              child: const Text('Ingest Text'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _ingestRawText(String title, String content) async {
+    if (_ingestionService == null || _storageService == null) return;
+
+    setState(() {
+      _isIngesting = true;
+      _statusMessage = "Ingesting '$title'...";
+    });
+
+    try {
+      final docId = _nextDocId++;
+      await _ingestionService!.ingestText(docId, content);
+
+      setState(() {
+        _ingestedDocs.add(IngestedDocumentInfo(
+          docId: docId,
+          title: title,
+          chunkCount: (content.length / 200).ceil(),
+          ingestedAt: DateTime.now(),
+        ));
+        _statusMessage = "Successfully ingested '$title' into Vector DB!";
+        _messages.add(RagChatMessage(
+          sender: "system",
+          text: "📝 Document added: '$title'. You can now ask questions about this document!",
+        ));
+      });
+    } catch (e) {
+      setState(() {
+        _statusMessage = "Ingestion error: $e";
       });
     } finally {
       setState(() {
@@ -409,168 +573,392 @@ class _RagTabState extends State<RagTab> {
     }
   }
 
-  Future<void> _runToolRequest() async {
-    final prompt = _toolController.text.trim();
-    if (prompt.isEmpty) return;
-    final denizen = DenizenAI();
-    if (!denizen.isModelLoaded) {
+  /// Send prompt and stream answer
+  Future<void> _sendMessage() async {
+    final text = _promptController.text.trim();
+    if (text.isEmpty) return;
+
+    if (!_denizen.isModelLoaded) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please load a model first in the Models tab.')),
+        const SnackBar(content: Text('Please load an offline model first in the Models tab.')),
       );
       return;
     }
 
+    _promptController.clear();
     setState(() {
-      _isToolRunning = true;
-      _toolLog = "Sending prompt to tool session...";
+      _messages.add(RagChatMessage(sender: "user", text: text));
+      _isGenerating = true;
     });
 
+    _scrollToBottom();
+
     try {
-      final session = denizen.createToolSession(
-        registry: _toolRegistry,
-        systemPrompt: "You are a helpful on-device assistant. Use tools when requested by the user.",
-      );
-      final response = await session.chat(prompt);
+      // Perform vector search manually to capture exact snippets for citations
+      List<String> snippets = [];
+      if (_embeddingProvider != null && _storageService != null && _storageService!.isInitialized) {
+        try {
+          final queryVec = await _embeddingProvider!.embed(text);
+          final searchResults = _storageService!.search(queryVec, limit: 2);
+          snippets = searchResults.map((r) => r['text_content'].toString()).toList();
+        } catch (_) {}
+      }
+
+      final aiMsg = RagChatMessage(sender: "assistant", text: "", retrievedSnippets: snippets);
       setState(() {
-        _toolLog = "AI Response: $response";
+        _messages.add(aiMsg);
       });
+
+      final stream = _ragSession != null
+          ? _ragSession!.streamChat(text)
+          : _denizen.engine.generateResponseStream(prompt: text);
+
+      await for (final token in stream) {
+        setState(() {
+          aiMsg.text += token;
+        });
+        _scrollToBottom();
+      }
     } catch (e) {
       setState(() {
-        _toolLog = "Error: $e";
+        _messages.add(RagChatMessage(sender: "assistant", text: "Error during generation: $e"));
       });
     } finally {
       setState(() {
-        _isToolRunning = false;
+        _isGenerating = false;
       });
+      _scrollToBottom();
     }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // ================= RAG SECTION =================
-          const Icon(Icons.manage_search, size: 60, color: Colors.blueAccent),
-          const SizedBox(height: 10),
-          const Text(
-            "RAG (Retrieval-Augmented Generation)",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "Insert a secret document into the local Vector DB so the AI can read it.",
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _isIngesting ? null : _ingestDummyDocument,
-            icon: const Icon(Icons.upload_file),
-            label: const Text('Ingest Secret Document'),
-          ),
-          const SizedBox(height: 10),
-          if (_isIngesting) const CircularProgressIndicator(),
-          Text(_status, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w500)),
-          const SizedBox(height: 16),
-          const Text(
-            "To test this, go to the Chat tab and ask: 'What is the secret password?'\n(Chat tab is now configured with DenizenRagSession!)",
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey, fontSize: 12),
-          ),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 16),
+    if (_isInitializing) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('Initializing RAG Vector Engine...'),
+          ],
+        ),
+      );
+    }
 
-          // ================= TOOLS SECTION =================
-          const Icon(Icons.build_circle, size: 60, color: Colors.orangeAccent),
-          const SizedBox(height: 10),
-          const Text(
-            "On-Device Tool Use & Function Calling",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "AI automatically detects tool calls (battery or flashlight) and runs local Dart code.",
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          
-          // Simulated Device State Card
-          Card(
-            color: Colors.grey[900],
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Column(
+      children: [
+        // ================= KNOWLEDGE BASE BAR =================
+        Container(
+          color: Colors.grey[900],
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Column(
-                    children: [
-                      Icon(
-                        _flashlightEnabled ? Icons.flash_on : Icons.flash_off,
-                        color: _flashlightEnabled ? Colors.yellow : Colors.grey,
-                        size: 32,
-                      ),
-                      const SizedBox(height: 4),
-                      Text("Flashlight: ${_flashlightEnabled ? 'ON' : 'OFF'}"),
-                    ],
+                  const Icon(Icons.auto_stories, color: Colors.cyanAccent, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Knowledge Base (${_ingestedDocs.length} Docs)",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
-                  Column(
-                    children: [
-                      const Icon(Icons.battery_std, color: Colors.green, size: 32),
-                      const SizedBox(height: 4),
-                      Text("Battery: $_batteryLevel%"),
-                    ],
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.upload_file, color: Colors.cyanAccent),
+                    tooltip: "Pick File from Phone",
+                    onPressed: _isIngesting ? null : _pickAndIngestFile,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.note_add, color: Colors.purpleAccent),
+                    tooltip: "Paste Custom Text",
+                    onPressed: _isIngesting ? null : _showPasteTextDialog,
                   ),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Tool Prompt Input
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _toolController,
-                  decoration: const InputDecoration(
-                    hintText: "Try: 'turn on the flashlight' or 'battery status'",
-                    border: OutlineInputBorder(),
+              if (_isIngesting) ...[
+                const SizedBox(height: 4),
+                const LinearProgressIndicator(),
+              ],
+              if (_ingestedDocs.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 36,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _ingestedDocs.length,
+                    itemBuilder: (context, index) {
+                      final doc = _ingestedDocs[index];
+                      return Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.cyan.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.cyanAccent.withOpacity(0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.description, size: 14, color: Colors.cyanAccent),
+                            const SizedBox(width: 6),
+                            Text(
+                              doc.title,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              "(${doc.chunkCount} chunks)",
+                              style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                  onSubmitted: (_) => _runToolRequest(),
                 ),
+              ] else ...[
+                const SizedBox(height: 4),
+                Text(
+                  "No bespoke documents uploaded yet. Tap 📁 icon to pick a file from your phone!",
+                  style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                ),
+              ]
+            ],
+          ),
+        ),
+
+        const Divider(height: 1),
+
+        // ================= CHAT MESSAGES CANVAS =================
+        Expanded(
+          child: _messages.isEmpty
+              ? _buildEmptyState()
+              : ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    return _buildMessageItem(msg);
+                  },
+                ),
+        ),
+
+        if (_isGenerating) const LinearProgressIndicator(minHeight: 2),
+
+        // ================= INPUT & ATTACHMENT BAR =================
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            border: Border(top: BorderSide(color: Colors.grey[800]!)),
+          ),
+          child: Row(
+            children: [
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.add_circle_outline, color: Colors.cyanAccent, size: 28),
+                onSelected: (value) {
+                  if (value == 'phone') {
+                    _pickAndIngestFile();
+                  } else if (value == 'text') {
+                    _showPasteTextDialog();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'phone',
+                    child: Row(
+                      children: [
+                        Icon(Icons.smartphone, color: Colors.cyanAccent),
+                        SizedBox(width: 8),
+                        Text('Pick File from Phone'),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'text',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_note, color: Colors.purpleAccent),
+                        SizedBox(width: 8),
+                        Text('Paste Custom Text'),
+                      ],
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: _isToolRunning ? null : _runToolRequest,
-                child: const Text("Run"),
+              Expanded(
+                child: TextField(
+                  controller: _promptController,
+                  maxLines: 4,
+                  minLines: 1,
+                  decoration: const InputDecoration(
+                    hintText: 'Ask questions about your uploaded documents...',
+                    border: InputBorder.none,
+                  ),
+                  onSubmitted: (_) => _sendMessage(),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.send_rounded, color: Colors.deepPurpleAccent),
+                onPressed: _isGenerating ? null : _sendMessage,
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (_isToolRunning) const LinearProgressIndicator(),
-          const SizedBox(height: 8),
-          
-          // Log output console
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[800]!),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.auto_stories, size: 64, color: Colors.cyanAccent),
             ),
-            child: Text(
-              _toolLog,
-              style: const TextStyle(fontFamily: 'monospace', color: Colors.lightGreenAccent),
+            const SizedBox(height: 16),
+            const Text(
+              "Document RAG Chat",
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 8),
+            const Text(
+              "Pick custom files from your phone storage or paste bespoke notes. AI will answer questions directly using your uploaded documents!",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _pickAndIngestFile,
+              icon: const Icon(Icons.folder_open),
+              label: const Text('Pick File from Phone'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageItem(RagChatMessage msg) {
+    if (msg.sender == "system") {
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.blueGrey.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.blueGrey.withOpacity(0.4)),
+        ),
+        child: Text(
+          msg.text,
+          style: const TextStyle(fontSize: 12, color: Colors.cyanAccent),
+        ),
+      );
+    }
+
+    final isUser = msg.sender == "user";
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser) ...[
+                const CircleAvatar(
+                  radius: 14,
+                  backgroundColor: Colors.cyan,
+                  child: Icon(Icons.smart_toy, size: 16, color: Colors.black),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: isUser ? Colors.deepPurple : Colors.grey[850],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    msg.text.isEmpty ? "..." : msg.text,
+                    style: const TextStyle(fontSize: 14, height: 1.4),
+                  ),
+                ),
+              ),
+              if (isUser) ...[
+                const SizedBox(width: 8),
+                const CircleAvatar(
+                  radius: 14,
+                  backgroundColor: Colors.purpleAccent,
+                  child: Icon(Icons.person, size: 16, color: Colors.white),
+                ),
+              ],
+            ],
           ),
+          if (!isUser && msg.retrievedSnippets.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 36),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(
+                  "🔍 Used ${msg.retrievedSnippets.length} retrieved context snippets from DB",
+                  style: const TextStyle(fontSize: 11, color: Colors.cyanAccent, fontWeight: FontWeight.bold),
+                ),
+                children: msg.retrievedSnippets.map((snippet) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black45,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      snippet,
+                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: Colors.grey),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
+}
 }
 
 // ============================================================================
