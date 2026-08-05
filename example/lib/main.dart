@@ -249,10 +249,13 @@ class _ChatTabState extends State<ChatTab> {
       _isGenerating = true;
     });
 
+    final sw = Stopwatch()..start();
     try {
       final response = await _session!.chat(userText);
+      sw.stop();
+      final sec = (sw.elapsedMilliseconds / 1000.0).toStringAsFixed(1);
       setState(() {
-        _messages.add("AI: $response");
+        _messages.add("AI: $response\n\n⏱️ Generated in ${sec}s");
       });
     } catch (e) {
       setState(() {
@@ -655,7 +658,9 @@ class _RagTabState extends State<RagTab> {
         _scrollToBottom();
       }
       sw.stop();
+      final sec = (sw.elapsedMilliseconds / 1000.0).toStringAsFixed(1);
       setState(() {
+        aiMsg.text += "\n\n⏱️ Generated in ${sec}s";
         aiMsg.generationSeconds = sw.elapsedMilliseconds / 1000.0;
       });
     } catch (e) {
